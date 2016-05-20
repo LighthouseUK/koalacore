@@ -8,8 +8,8 @@
     :license: LGPL
 """
 import logging
-from koala.tools import DictDiffer
-from koala.exceptions import KoalaException
+from .tools import DictDiffer
+from .exceptions import KoalaException
 
 
 __author__ = 'Matt Badger'

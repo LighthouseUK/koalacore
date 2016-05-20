@@ -9,11 +9,10 @@
     :copyright: (c) 2015 Lighthouse
     :license: LGPL
 """
+import collections
+from .tools import random_string
 
 __author__ = 'Matt Badger'
-
-import collections
-from koala.tools import random_string
 
 APPLY_ALL = 0
 

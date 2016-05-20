@@ -24,8 +24,8 @@
     :license: LGPL
 """
 
-import koala
 import logging
+from .api import Resource
 from blinker import signal
 from google.appengine.ext import ndb
 
@@ -78,7 +78,7 @@ class PermissionsStorage(object):
         self._cache = {}
 
 
-class RBAC(koala.Resource):
+class RBAC(Resource):
     _global_acl = None
     _user_valid_actions_cache_key = 'valid_actions'
 

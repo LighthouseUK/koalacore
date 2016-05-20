@@ -7,8 +7,7 @@ from decimal import Decimal
 __author__ = 'Matt'
 
 
-_PROTECTED_TYPES = six.integer_types + (type(None), float, Decimal,
-    datetime.datetime, datetime.date, datetime.time)
+_PROTECTED_TYPES = six.integer_types + (type(None), float, Decimal, datetime.datetime, datetime.date, datetime.time)
 
 
 def is_protected_type(obj):
