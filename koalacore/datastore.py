@@ -1183,7 +1183,7 @@ else:
                         if property_instance._auto_now_add and not datastore_model_kwargs[prop_name]:
                             # We only want to remove an auto_now_add property if it is not currently set
                             del datastore_model_kwargs[prop_name]
-                    elif prop_name in datastore_model_kwargs and prop_type is ndb.model.KeyProperty:
+                    elif prop_name in datastore_model_kwargs and prop_type is ndb.model.KeyProperty and datastore_model_kwargs[prop_name] is not None:
                         datastore_model_kwargs[prop_name] = cls._convert_string_to_ndb_key(datastore_key=datastore_model_kwargs[prop_name])
 
                 return cls._datastore_model(**datastore_model_kwargs)
@@ -1205,12 +1205,8 @@ else:
                     prop_type = type(property_instance)
                     if prop_type is ndb.model.ComputedProperty:
                         del resource_object_kwargs[property_instance._code_name]
-                    elif prop_type is ndb.model.KeyProperty:
-                        try:
-                            resource_object_kwargs[property_instance._code_name] = cls._convert_ndb_key_to_string(datastore_key=resource_object_kwargs[property_instance._code_name])
-                        except AttributeError:
-                            # This exception is thrown then the key value is None, or does not evaluate to a NDB Key.
-                            pass
+                    elif prop_type is ndb.model.KeyProperty and resource_object_kwargs[property_instance._code_name] is not None:
+                        resource_object_kwargs[property_instance._code_name] = cls._convert_ndb_key_to_string(datastore_key=resource_object_kwargs[property_instance._code_name])
 
                 return cls._resource_object(**resource_object_kwargs)
 
