@@ -3,7 +3,7 @@ from distutils.core import setup
 setup(
     name='koalacore',
     packages=['koalacore'],  # this must be the same as the name above
-    version='0.1.1-alpha',
+    version='0.1.2-alpha',
     description='Tools for writing APIs on Google App Engine. You *must* install the GAE SDK for this package to work.',
     author='Matt Badger',
     author_email='foss@lighthouseuk.net',
