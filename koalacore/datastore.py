@@ -1206,7 +1206,11 @@ else:
                     if prop_type is ndb.model.ComputedProperty:
                         del resource_object_kwargs[property_instance._code_name]
                     elif prop_type is ndb.model.KeyProperty:
-                        resource_object_kwargs[property_instance._code_name] = cls._convert_ndb_key_to_string(datastore_key=resource_object_kwargs[property_instance._code_name])
+                        try:
+                            resource_object_kwargs[property_instance._code_name] = cls._convert_ndb_key_to_string(datastore_key=resource_object_kwargs[property_instance._code_name])
+                        except AttributeError:
+                            # This exception is thrown then the key value is None, or does not evaluate to a NDB Key.
+                            pass
 
                 return cls._resource_object(**resource_object_kwargs)
 

@@ -5,7 +5,6 @@ koalacore\__init__.py
 koalacore\_internal.py
 koalacore\api.py
 koalacore\datastore.py
-koalacore\exampleapimodule.py
 koalacore\exceptions.py
 koalacore\privileges.py
 koalacore\rbac.py
