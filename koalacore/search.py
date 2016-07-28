@@ -379,7 +379,7 @@ else:
         def _internal_search(cls, query_string, explicit_query_string_overrides=None, cursor_support=False,
                              existing_cursor=None, limit=20, number_found_accuracy=None, offset=None, sort_options=None,
                              returned_fields=None, ids_only=False, snippeted_fields=None, returned_expressions=None,
-                             *args, **kwargs):
+                             sort_limit=1000, *args, **kwargs):
             """
             Query search records in the search index. Essentially the params are the same as for GAE Search API.
             The exceptions are cursor, returned_expressions and sort_options.
@@ -401,6 +401,9 @@ else:
 
             See https://cloud.google.com/appengine/docs/python/search/options for more detailed explanations.
 
+            Sort limit should be overridden if possible matches exceeds 1000. It should be set to a value higher, or
+            equal to, the maximum number of results that could be found for a given search.
+
             :param query_string:
             :param explicit_query_string_overrides:
             :param cursor_support:
@@ -413,6 +416,7 @@ else:
             :param ids_only:
             :param snippeted_fields:
             :param returned_expressions:
+            :param sort_limit:
             :param args:
             :param kwargs:
             :raises search.Error:
@@ -446,7 +450,7 @@ else:
                 parsed_options = [search.SortExpression(expression=sort_option[0],
                                                         direction=sort_option[1],
                                                         default_value=sort_option[2]) for sort_option in sort_options]
-                compiled_sort_options = search.SortOptions(expressions=parsed_options)
+                compiled_sort_options = search.SortOptions(expressions=parsed_options, limit=sort_limit)
 
             if returned_expressions:
                 compiled_field_expressions = [search.FieldExpression(name=field_exp[0], expression=field_exp[1]) for
