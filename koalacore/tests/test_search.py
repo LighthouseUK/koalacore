@@ -1,11 +1,11 @@
 import unittest
 from google.appengine.ext import testbed
-import koala
+import koalacore
 
 __author__ = 'Matt'
 
 
-class TestResource(koala.Resource):
+class TestResource(koalacore.Resource):
     def __init__(self, uid, prop1, prop2, prop3, **kwargs):
         super(TestResource, self).__init__(**kwargs)
 
@@ -15,7 +15,7 @@ class TestResource(koala.Resource):
         self.prop3 = prop3
 
 
-class TestResourceWithMultivalueProperties(koala.Resource):
+class TestResourceWithMultivalueProperties(koalacore.Resource):
     def __init__(self, uid, prop1, prop2, prop3, list_of_values, **kwargs):
         super(TestResourceWithMultivalueProperties, self).__init__(**kwargs)
 
@@ -26,7 +26,7 @@ class TestResourceWithMultivalueProperties(koala.Resource):
         self.list_of_values = list_of_values
 
 
-class TestSearchInterface(koala.GAESearchInterface):
+class TestSearchInterface(koalacore.GAESearchInterface):
     _index_name = 'test_index'
     _check_duplicates = False
 
@@ -43,7 +43,7 @@ class TestSearchInterface(koala.GAESearchInterface):
         return search_doc
 
 
-class TestSearchInterfaceWithDuplicateProperties(koala.GAESearchInterface):
+class TestSearchInterfaceWithDuplicateProperties(koalacore.GAESearchInterface):
     _index_name = 'test_index'
     _check_duplicates = True
 

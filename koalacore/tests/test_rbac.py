@@ -1,17 +1,17 @@
 import unittest
-import koala
+import koalacore
 from google.appengine.ext import testbed
 from blinker import signal
 
 __author__ = 'Matt'
 
 
-class User(koala.Resource):
-    permissions = koala.ResourceProperty(title=u'Permissions')
+class User(koalacore.Resource):
+    permissions = koalacore.ResourceProperty(title=u'Permissions')
 
     def __init__(self, **kwargs):
         if 'permissions' not in kwargs or kwargs['permissions'] is None:
-            kwargs['permissions'] = koala.PermissionsStorage()
+            kwargs['permissions'] = koalacore.PermissionsStorage()
 
         super(User, self).__init__(**kwargs)
 
@@ -92,7 +92,7 @@ class TestRBAC(unittest.TestCase):
             'sysadmin': {'delete_user', 'delete_company'},
             'admin': {'update_user_password', 'update_company'},
         }
-        self.rbac = koala.RBAC
+        self.rbac = koalacore.RBAC
         self.rbac.configure(global_acl=global_acl)
 
     def tearDown(self):
@@ -155,14 +155,14 @@ class TestRBACSignals(unittest.TestCase):
             'sysadmin': {'delete_user', 'delete_company'},
             'admin': {'update_user_password', 'update_company'},
         }
-        self.rbac = koala.RBAC
+        self.rbac = koalacore.RBAC
         self.rbac.configure(global_acl=global_acl)
 
     def tearDown(self):
         self.testbed.deactivate()
 
     def _permission_denied(self, sender, **kwargs):
-        raise koala.PermissionDenied('Test permission denied')
+        raise koalacore.PermissionDenied('Test permission denied')
 
     def test_user_can_signal(self):
         user = User()
