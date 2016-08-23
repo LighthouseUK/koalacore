@@ -644,3 +644,60 @@ else:
             """
             if field.name not in duplicates:
                 setattr(result_object, field.name, field.value)
+
+    class KoalaSearchInterface(GAESearchInterface):
+        """
+        Essentially the same as the vanilla GAESearchInterface implementation. The difference is that we use a Koala
+        resource object as the basis for the search result. This gives us access to attribute titles, amongst other
+        things, which makes the UI easier to setup.
+
+        Note: You must set the _resource_object property
+        """
+
+        @classmethod
+        def _convert_resource_object_to_search_record(cls, resource_object, **kwargs):
+            """
+            Method to convert between koala resource objects and native search_records. Can be overridden if you want to
+            do some custom processing, or if your resource object does not support the 'to_search_doc()' method.
+            :param resource_object:
+            :returns search_record:
+            """
+
+            # TODO: change this so that we do the result object creation in an explicit manner instead of having a
+            # `to_search_doc` method in the resource
+            search_doc = cls._search_document_model(
+                doc_id=resource_object.uid,
+                fields=resource_object.to_search_doc() + [cls.atom_field(name='uid', value=resource_object.uid)]
+            )
+            return search_doc
+
+        @classmethod
+        def _convert_search_result_to_result_object(cls, search_result):
+            """
+            Method to convert between native search results and result object. It uses the resource object properties
+            instead of simple python object properties.
+
+            :param search_result:
+            :returns result_object:
+            """
+
+            cursor = None
+            parsed_results = []
+
+            for result in search_result:
+                result_properties = {}
+
+                duplicate_properties = cls.find_duplicate_properties(result)
+
+                for field in result.fields:
+                    if field.name not in duplicate_properties:
+                        result_properties[field.name] = field.value
+                    else:
+                        result_properties[field.name] = [field.value for field in result[field.name]]
+
+                parsed_results.append(cls._result(**result_properties))
+
+            if search_result.cursor:
+                cursor = search_result.cursor.web_safe_string
+
+            return cls._search_result(results_count=search_result.number_found, results=parsed_results, cursor=cursor)

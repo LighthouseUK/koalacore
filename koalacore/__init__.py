@@ -24,9 +24,9 @@ if STATICA_HACK:  # pragma: no cover
     # This is never executed, but tricks static analyzers (PyDev, PyCharm,
     # pylint, etc.) into knowing the types of these symbols, and what
     # they contain.
-    from koalacore.api import BaseAPI, BaseSubAPI, BaseResource, Resource, BaseResourceProperty, ResourceProperty, ComputedResourceProperty  # noqa
+    from koalacore.api import BaseAPI, BaseSubAPI, BaseResource, Resource, BaseResourceProperty, ResourceProperty, ComputedResourceProperty, SearchResult, SearchResultProperty  # noqa
     from koalacore.tools import DictDiffer, generate_autocomplete_tokens, eval_boolean_string, convert_to_unicode, csv_item_convert  # noqa
-    from koalacore.search import GAESearchInterface, Result  # noga
+    from koalacore.search import GAESearchInterface, Result, KoalaSearchInterface  # noga
     from koalacore.rbac import PermissionDenied, PermissionsStorage, RBAC  # noga
     from koalacore.privileges import Privilege, PrivilegeConstants, SecurityObject, AugmentedPrivilegeEvaluator, AugmentedSecurityObject, authorise, UnauthorisedCredentials, mock_credentials  # noqa
     from koalacore.datastore import NDBEventedInterface, NDBUniques, ModelUtils, NDBResource, ResourceNotFound, ResourceException, UniqueValueRequired  # noqa
@@ -37,9 +37,9 @@ if STATICA_HACK:  # pragma: no cover
 
 # import mapping to objects in other modules
 all_by_module = {
-    '{}.api'.format(PACKAGE_NAME): ['BaseAPI', 'BaseSubAPI', 'BaseResource', 'Resource', 'BaseResourceProperty', 'ResourceProperty', 'ComputedResourceProperty'],
+    '{}.api'.format(PACKAGE_NAME): ['BaseAPI', 'BaseSubAPI', 'BaseResource', 'Resource', 'BaseResourceProperty', 'ResourceProperty', 'ComputedResourceProperty', 'SearchResult', 'SearchResultProperty'],
     '{}.tools'.format(PACKAGE_NAME): ['DictDiffer', 'generate_autocomplete_tokens', 'eval_boolean_string', 'convert_to_unicode', 'csv_item_convert'],
-    '{}.search'.format(PACKAGE_NAME): ['GAESearchInterface', 'Result'],
+    '{}.search'.format(PACKAGE_NAME): ['GAESearchInterface', 'Result', 'KoalaSearchInterface'],
     '{}.rbac'.format(PACKAGE_NAME): ['PermissionDenied', 'PermissionsStorage', 'RBAC'],
     '{}.privileges'.format(PACKAGE_NAME): ['Privilege', 'PrivilegeConstants', 'SecurityObject',
                                            'AugmentedPrivilegeEvaluator', 'AugmentedSecurityObject', 'authorise',
