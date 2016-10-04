@@ -33,6 +33,7 @@ if STATICA_HACK:  # pragma: no cover
     from koalacore.security import generate_password_hash, generate_random_string, check_password_hash  # noqa
     from koalacore.exceptions import KoalaException, InvalidUser, UnauthorisedUser  # noqa
     from koalacore.validators import URIValidator, ConditionalURIValidator  # noqa
+    from koalacore.config import CustomConfigParser, NoOptionError, NoSectionError, load_config  # noqa
 
 
 # import mapping to objects in other modules
@@ -48,6 +49,7 @@ all_by_module = {
     '{}.security'.format(PACKAGE_NAME): ['generate_password_hash', 'generate_random_string', 'check_password_hash'],
     '{}.exceptions'.format(PACKAGE_NAME): ['KoalaException', 'ResourceException', 'UniqueValueRequired', 'InvalidUser', 'UnauthorisedUser'],
     '{}.validators'.format(PACKAGE_NAME): ['URIValidator', 'ConditionalURIValidator'],
+    '{}.config'.format(PACKAGE_NAME): ['CustomConfigParser', 'NoSectionError', 'NoOptionError', 'load_config'],
 }
 
 # modules that should be imported when accessed as attributes of koala
