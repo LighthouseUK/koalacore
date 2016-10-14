@@ -11,6 +11,8 @@
 
 from blinker import signal
 from google.appengine.ext import deferred
+from .datastore import DatastoreMock
+from .search import SearchMock
 
 __author__ = 'Matt Badger'
 
@@ -19,9 +21,245 @@ __author__ = 'Matt Badger'
 # TODO: it is possible that these methods will fail and thus their result will be None. Passing this in a signal may
 # cause other functions to throw exceptions. Check the return value before processing the post_ signals?
 
+# TODO: if strict_parent set but no parent then ignore
+# TODO: set parent automatically based on nesting with sub_apis
+# TODO: if strict is set then follow parent up the chain until we either get to the root, or to a parent that is not
+# strict
+example_def = {
+    'companies': {
+        'type': 'GAEAPI',
+        'resource_model': 'model',
+        'strict_parent': False,
+        'datastore_config': {
+            'type': 'KoalaNDB',
+            'datastore_model': 'model',
+            'resource_model': 'model',
+        },
+        'search_config': {
 
-# Result should always be the first argument to the post_ signals. That way the receivers can check the value before
-# continuing execution.
+        },
+        'sub_apis': {
+            'users': {
+                    'resource_model': 'model',
+                    'strict_parent': True,
+                    'datastore_config': {
+                        'type': 'KoalaNDB',
+                        'datastore_model': 'model',
+                        'resource_model': 'model',
+                    },
+                    'search_config': {
+
+                    },
+                    'sub_apis': {
+
+                    },
+                }
+        },
+    }
+}
+
+
+class API(object):
+    pass
+
+
+def apimethod(f):
+    """
+        Wraps api methods with signal sending; removes boilerplate code.
+
+        NOTE: you must use kwargs with this decorator. You should only ever be passing named arguments to api methods.
+        This allows us to more easily evaluate the arguments with the signals, but it also eliminates bugs due to
+        argument positioning.
+    """
+
+    def _w(*args, **kwargs):
+        pre_hook_name = 'pre_{}'.format(f.func_name)
+        pre_hook = signal(pre_hook_name)
+        post_hook_name = 'post_{}'.format(f.func_name)
+        post_hook = signal(post_hook_name)
+
+        if bool(pre_hook.receivers):
+            pre_hook.send(args[0], **kwargs)
+
+        result = f(*args, **kwargs)
+
+        if bool(post_hook.receivers):
+            post_hook.send(args[0], result=result, **kwargs)
+
+        return result
+
+    return _w
+
+
+class BaseAPI(object):
+    def __init__(self, resource_model, parent=None, strict_parent=None):
+        """
+        parent represents another instance of this class which is 'more powerful'. As an example, if you use NDB as the
+        datastore then you could check resource UID has the correct kind, ID pairs. It also allows the parser to setup
+        nested attributes in the api e.g. api.Companies.Users.get()
+
+        strict_parent is a boolean that enforces the parent's will over this instance. For example, the parent could set
+        some security parameters that this instance must follow, rather than being able to set it's own security
+        parameters.
+
+        :param resource_model:
+        :param parent:
+        :param strict_parent:
+        """
+        self.resource_model = resource_model
+        self.parent = parent
+
+        # If there is no parent then strict_parent should have no effect. Setting it to false will help prevent bugs in
+        # code that relies on this flag being accurately set.
+        if parent is None:
+            strict_parent = False
+
+        self.strict_parent = strict_parent
+
+    def new(self, **kwargs):
+        return self.resource_model(**kwargs)
+
+
+class GAEAPI(BaseAPI):
+    def __init__(self, datastore, search_index, **kwargs):
+        # TODO: parse the datastore, search configs and setup instances. Possibly wrap in try except
+        super(GAEAPI, self).__init__(**kwargs)
+        self.datastore = datastore
+
+        self.search_index = search_index
+        self.search_update_queue = search_index.update_queue
+
+    @apimethod
+    def insert(self, resource_object, **kwargs):
+        resource_uid = self.datastore.insert(resource_object=resource_object, **kwargs)
+        deferred.defer(self._update_search_index, resource_uid=resource_uid, _queue=self.search_update_queue)
+        return resource_uid
+
+    @apimethod
+    def get(self, resource_uid, **kwargs):
+        resource = self.datastore.get(resource_uid=resource_uid)
+        return resource
+
+    @apimethod
+    def update(self, resource_object, **kwargs):
+        resource_uid = self.datastore.update(resource_object=resource_object, **kwargs)
+        deferred.defer(self._update_search_index, resource_uid=resource_uid, _queue=self.search_update_queue)
+        return resource_uid
+
+    @apimethod
+    def patch(self, resource_uid, delta_update, **kwargs):
+        resource_uid = self.datastore.patch(resource_uid=resource_uid, delta_update=delta_update, **kwargs)
+        deferred.defer(self._update_search_index, resource_uid=resource_uid, _queue=self.search_update_queue)
+
+    @apimethod
+    def delete(self, resource_uid, **kwargs):
+        self.datastore.delete(resource_uid=resource_uid, **kwargs)
+        deferred.defer(self._delete_search_index, resource_uid=resource_uid, _queue=self.search_update_queue)
+
+    @apimethod
+    def search(self, query_string, **kwargs):
+        search_result = self.datastore.search(query_string=query_string, **kwargs)
+        return search_result
+
+    def _update_search_index(self, resource_uid, **kwargs):
+        resource = self.get(resource_uid=resource_uid)
+        self.search_index.insert(resource_object=resource, **kwargs)
+
+    def _delete_search_index(self, resource_uid, **kwargs):
+        self.search_index.delete(resource_object_uid=resource_uid, **kwargs)
+
+
+def init_api(api_name, api_def, parent=None, default_api=GAEAPI, default_datastore=DatastoreMock, default_search_index=SearchMock):
+    try:
+        # sub apis should not be passed to the api constructor.
+        sub_api_defs = api_def['sub_apis']
+        del api_def['sub_apis']
+    except KeyError:
+        sub_api_defs = None
+
+    # Update the default datastore config with the user supplied values and set them in the def
+    default_datastore_config = {
+        'type': default_datastore,
+        'unwanted_resource_kwargs': None,
+    }
+
+    try:
+        default_datastore_config.update(api_def['datastore_config'])
+    except KeyError:
+        pass
+    except TypeError:
+        # The value was set explicitly to None, so we skip the generation
+        pass
+    else:
+        del api_def['datastore_config']
+
+    new_datastore_type = default_datastore_config['type']
+    del default_datastore_config['type']
+    api_def['datastore'] = new_datastore_type(**default_datastore_config)
+
+    # Update the default search config with the user supplied values and set them in the def
+    default_search_config = {
+        'type': default_search_index,
+    }
+
+    try:
+        default_search_config.update(api_def['search_config'])
+    except KeyError:
+        pass
+    except TypeError:
+        # The value was set explicitly to None, so we skip the generation
+        pass
+    else:
+        del api_def['search_config']
+
+    new_search_index_type = default_search_config['type']
+    del default_search_config['type']
+    api_def['search_index'] = new_search_index_type(**default_search_config)
+
+    default_api_config = {
+        'type': default_api,
+        'strict_parent': False,
+        'parent': parent
+    }
+
+    # This could raise a number of exceptions. Rather than swallow them we will let them bubble to the top;
+    # fail fast
+    default_api_config.update(api_def)
+
+    # Create the new api
+    new_api_type = default_api_config['type']
+    del default_api_config['type']
+
+    new_api = new_api_type(**default_api_config)
+
+    if sub_api_defs is not None:
+        # recursively add the sub apis to this newly created api
+        for sub_api_name, sub_api_def in sub_api_defs.iteritems():
+            init_api(api_name=sub_api_name,
+                     api_def=sub_api_def,
+                     parent=new_api,
+                     default_api=default_api,
+                     default_datastore=default_datastore,
+                     default_search_index=default_search_index)
+
+    if parent:
+        setattr(parent, api_name, new_api)
+
+
+def parse_api_config(api_definition, default_api=GAEAPI, default_datastore=DatastoreMock, default_search_index=SearchMock):
+    api = API()
+
+    for api_name, api_def in api_definition.iteritems():
+        init_api(api_name=api_name,
+                 api_def=api_def,
+                 parent=api,
+                 default_api=default_api,
+                 default_datastore=default_datastore,
+                 default_search_index=default_search_index)
+
+    return api
+
+
 class BaseAPI(object):
     _api_name = ''
     _api_model = None

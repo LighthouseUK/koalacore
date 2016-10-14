@@ -57,7 +57,7 @@ class TestEventedNDBDatastore(unittest.TestCase):
         return u'Received! kwargs: {}'.format(kwargs)
 
     def test_signal_inactive(self):
-        class TestEventedNDB(koalacore.NDBEventedInterface):
+        class TestEventedNDB(koalacore.KoalaNDB):
             _datastore_model = NDBTestModel
             _resource_object = TestModel
 
@@ -86,7 +86,7 @@ class TestEventedNDBDatastore(unittest.TestCase):
         self.assertFalse(TestEventedNDB._hook_transaction_post_delete_enabled, u'TRANSACTIONAL DELETE post hook should be inactive')
 
     def test_signal_inactive_until_setup_method_called(self):
-        class TestEventedNDB(koalacore.NDBEventedInterface):
+        class TestEventedNDB(koalacore.KoalaNDB):
             _datastore_model = NDBTestModel
             _resource_object = TestModel
 
@@ -164,7 +164,7 @@ class TestEventedNDBDatastore(unittest.TestCase):
         self.assertFalse(TestEventedNDB._hook_transaction_post_delete_enabled, u'TRANSACTIONAL DELETE post hook should be inactive')
 
     def test_signal_activation(self):
-        class TestEventedNDB(koalacore.NDBEventedInterface):
+        class TestEventedNDB(koalacore.KoalaNDB):
             _datastore_model = NDBTestModel
             _resource_object = TestModel
 
@@ -242,7 +242,7 @@ class TestEventedNDBDatastore(unittest.TestCase):
         self.assertTrue(TestEventedNDB._hook_transaction_post_delete_enabled, u'TRANSACTIONAL DELETE post hook should be active')
 
     def test_computed_properties_blank(self):
-        class TestEventedNDB(koalacore.NDBEventedInterface):
+        class TestEventedNDB(koalacore.KoalaNDB):
             _datastore_model = NDBTestModel
             _resource_object = TestModel
 
@@ -251,7 +251,7 @@ class TestEventedNDBDatastore(unittest.TestCase):
         self.assertEquals(test_resource.computed, u'This is a test string', u'Computed Property Failed')
 
     def test_insert_async(self):
-        class TestEventedNDB(koalacore.NDBEventedInterface):
+        class TestEventedNDB(koalacore.KoalaNDB):
             _datastore_model = NDBTestModel
             _resource_object = TestModel
 
@@ -277,7 +277,7 @@ class TestEventedNDBDatastore(unittest.TestCase):
         self.assertEquals(len(signal_tester.hook_activations[TestEventedNDB]), 2, u'Insert should trigger 2 hooks')
 
     def test_get_async(self):
-        class TestEventedNDB(koalacore.NDBEventedInterface):
+        class TestEventedNDB(koalacore.KoalaNDB):
             _datastore_model = NDBTestModel
             _resource_object = TestModel
 
@@ -306,7 +306,7 @@ class TestEventedNDBDatastore(unittest.TestCase):
         self.assertEquals(len(signal_tester.hook_activations[TestEventedNDB]), 2, u'Get should trigger 2 hooks')
 
     def test_update_async(self):
-        class TestEventedNDB(koalacore.NDBEventedInterface):
+        class TestEventedNDB(koalacore.KoalaNDB):
             _datastore_model = NDBTestModel
             _resource_object = TestModel
 
@@ -345,7 +345,7 @@ class TestEventedNDBDatastore(unittest.TestCase):
         self.assertEqual(get_result_2.example, u'Edited example property', u'Updated property mismatch.')
 
     def test_patch_async(self):
-        class TestEventedNDB(koalacore.NDBEventedInterface):
+        class TestEventedNDB(koalacore.KoalaNDB):
             _datastore_model = NDBTestModel
             _resource_object = TestModel
 
@@ -383,7 +383,7 @@ class TestEventedNDBDatastore(unittest.TestCase):
         self.assertEqual(get_result.random_property, u'this_is_a_test', u'Updated property mismatch.')
 
     def test_delete_async(self):
-        class TestEventedNDB(koalacore.NDBEventedInterface):
+        class TestEventedNDB(koalacore.KoalaNDB):
             _datastore_model = NDBTestModel
             _resource_object = TestModel
 

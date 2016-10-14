@@ -12,6 +12,11 @@ import logging
 __author__ = 'Matt Badger'
 
 
+class SearchMock(object):
+    def __init__(self, *args, **kwargs):
+        self.update_queue = 'test'
+
+
 class ClassPropertyDescriptor(object):
 
     def __init__(self, fget, fset=None):
@@ -296,6 +301,7 @@ else:
         """
         _search_document_model = search.Document
         _search_index_model = search.Index
+        update_queue = 'search-index-update'
 
         # These definitions are just for convenience - it means we don't have to import the gae search lib
         # in each of the modules that implement the class.

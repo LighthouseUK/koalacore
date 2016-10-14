@@ -4,6 +4,7 @@ setup.py
 koalacore/__init__.py
 koalacore/_internal.py
 koalacore/api.py
+koalacore/config.py
 koalacore/datastore.py
 koalacore/exceptions.py
 koalacore/privileges.py
