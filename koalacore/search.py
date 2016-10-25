@@ -16,6 +16,11 @@ class SearchMock(object):
     def __init__(self, *args, **kwargs):
         self.update_queue = 'test'
 
+    def __getattr__(self, name):
+        def wrapper(*args, **kwargs):
+            print "'%s' was called" % name
+        return wrapper
+
 
 class ClassPropertyDescriptor(object):
 

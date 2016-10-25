@@ -13,6 +13,8 @@ from blinker import signal
 from google.appengine.ext import deferred
 from .datastore import DatastoreMock
 from .search import SearchMock
+from .ramdisk import RamDisk, _hash
+import google.appengine.ext.ndb as ndb
 
 __author__ = 'Matt Badger'
 
@@ -21,9 +23,6 @@ __author__ = 'Matt Badger'
 # TODO: it is possible that these methods will fail and thus their result will be None. Passing this in a signal may
 # cause other functions to throw exceptions. Check the return value before processing the post_ signals?
 
-# TODO: if strict_parent set but no parent then ignore
-# TODO: set parent automatically based on nesting with sub_apis
-# TODO: if strict is set then follow parent up the chain until we either get to the root, or to a parent that is not
 # strict
 example_def = {
     'companies': {
@@ -63,7 +62,7 @@ class API(object):
     pass
 
 
-def apimethod(f):
+def apimethodwrapper(f):
     """
         Wraps api methods with signal sending; removes boilerplate code.
 
@@ -79,20 +78,57 @@ def apimethod(f):
         post_hook = signal(post_hook_name)
 
         if bool(pre_hook.receivers):
-            pre_hook.send(args[0], **kwargs)
+            for receiver in pre_hook.receivers_for(args[0]):
+                receiver(args[0], **kwargs)
 
-        result = f(*args, **kwargs)
+        result = yield f(*args, **kwargs)
 
         if bool(post_hook.receivers):
-            post_hook.send(args[0], result=result, **kwargs)
+            for receiver in post_hook.receivers_for(args[0]):
+                receiver(args[0], result=result, **kwargs)
 
-        return result
+        raise ndb.Return(result)
 
     return _w
 
 
+"""
+We turn the apimethodwrapper into an ndb tasklet to facilitate async signal sending (by default the signals are
+blocking). That's not to say that they can't still be blocking if you write blocking code. Any connected signals should
+not return a value, and should avoid blocking code at all costs (think making remote api calls without yielding).
+"""
+apimethod = ndb.tasklet(apimethodwrapper)
+
+
+def cache_result(ttl=0, noc=0):
+    """
+        Wraps an api method and caches the result
+
+        NOTE: you must use kwargs with this decorator. You should only ever be passing named arguments to api methods.
+        This allows us to more easily evaluate the arguments with the signals, but it also eliminates bugs due to
+        argument positioning.
+        You must also have set `create_cache` to True in the API config.
+    """
+
+    def result_cacher(func):
+
+        def cacher(*args, **kwargs):
+            cache = _hash(func, list(args), ttl, **kwargs)
+            result = args[0]._cache.get_data(cache, ttl=ttl, noc=noc)
+
+            if result is not None:
+                return result
+            else:
+                result = func(*args, **kwargs)
+                args[0]._cache.store_data(cache, result, ttl=ttl, noc=noc, ncalls=0)
+            return result
+
+        return cacher
+    return result_cacher
+
+
 class BaseAPI(object):
-    def __init__(self, resource_model, parent=None, strict_parent=None):
+    def __init__(self, parent=None, strict_parent=None, create_cache=False, **kwargs):
         """
         parent represents another instance of this class which is 'more powerful'. As an example, if you use NDB as the
         datastore then you could check resource UID has the correct kind, ID pairs. It also allows the parser to setup
@@ -102,11 +138,15 @@ class BaseAPI(object):
         some security parameters that this instance must follow, rather than being able to set it's own security
         parameters.
 
-        :param resource_model:
+        Each of the api methods will send a signal by default. It is up to the implementor to handle these signals.
+        The return value of the api method is taken to be the return value of the first receiver. If you have multiple
+        receivers for an api method then their return values will be ignored. It is therefore not advisable to attach
+        multiple receivers to any given method. If you need to do checks, or trigger other signals based on changes, do
+        so with the pre or post signals.
+
         :param parent:
         :param strict_parent:
         """
-        self.resource_model = resource_model
         self.parent = parent
 
         # If there is no parent then strict_parent should have no effect. Setting it to false will help prevent bugs in
@@ -116,50 +156,204 @@ class BaseAPI(object):
 
         self.strict_parent = strict_parent
 
+        if create_cache:
+            self._cache = RamDisk()
+
+    @property
+    def root_parent(self):
+        # If strict parent is true then we find the next highest non-strict parent. Otherwise we return self because
+        # we are effectively the root api (even if we are technically nested).
+        if self.strict_parent:
+            current_parent = self.parent
+            while current_parent:
+                if current_parent.strict_parent:
+                    current_parent = current_parent.parent
+                else:
+                    return current_parent
+        else:
+            return self
+
+
+class BaseResourceAPI(BaseAPI):
+    def __init__(self, resource_model, **kwargs):
+        self.resource_model = resource_model
+        super(BaseResourceAPI, self).__init__(**kwargs)
+
+    @apimethod
     def new(self, **kwargs):
         return self.resource_model(**kwargs)
 
-
-class GAEAPI(BaseAPI):
-    def __init__(self, datastore, search_index, **kwargs):
-        # TODO: parse the datastore, search configs and setup instances. Possibly wrap in try except
-        super(GAEAPI, self).__init__(**kwargs)
-        self.datastore = datastore
-
-        self.search_index = search_index
-        self.search_update_queue = search_index.update_queue
-
-    @apimethod
     def insert(self, resource_object, **kwargs):
-        resource_uid = self.datastore.insert(resource_object=resource_object, **kwargs)
-        deferred.defer(self._update_search_index, resource_uid=resource_uid, _queue=self.search_update_queue)
-        return resource_uid
+        @apimethod
+        def _internal_insert(*args, **kwargs):
+            insert_hook = signal('insert')
+
+            if bool(insert_hook.receivers):
+                result = insert_hook.send(args[0], **kwargs)
+                yield result[0][1]
+
+        return _internal_insert(resource_object=resource_object, **kwargs)
 
     @apimethod
     def get(self, resource_uid, **kwargs):
-        resource = self.datastore.get(resource_uid=resource_uid)
-        return resource
+        get_hook = signal('get')
+
+        if bool(get_hook.receivers):
+            result = get_hook.send(self, resource_uid=resource_uid, **kwargs)
+            return result[0][1]
 
     @apimethod
     def update(self, resource_object, **kwargs):
-        resource_uid = self.datastore.update(resource_object=resource_object, **kwargs)
+        update_hook = signal('update')
+
+        if bool(update_hook.receivers):
+            result = update_hook.send(self, resource_object=resource_object, **kwargs)
+            return result[0][1]
+
+    @apimethod
+    def patch(self, resource_uid, delta_update, **kwargs):
+        patch_hook = signal('patch')
+
+        if bool(patch_hook.receivers):
+            result = patch_hook.send(self, resource_uid=resource_uid, delta_update=delta_update, **kwargs)
+            return result[0][1]
+
+    @apimethod
+    def delete(self, resource_uid, **kwargs):
+        delete_hook = signal('delete')
+
+        if bool(delete_hook.receivers):
+            result = delete_hook.send(self, resource_uid=resource_uid, **kwargs)
+            return result[0][1]
+
+    @apimethod
+    def query(self, query_params, **kwargs):
+        query_hook = signal('query')
+
+        if bool(query_hook.receivers):
+            result = query_hook.send(self, query_params=query_params, **kwargs)
+            return result[0][1]
+
+    @apimethod
+    def search(self, query_string, **kwargs):
+        search_hook = signal('search')
+
+        if bool(search_hook.receivers):
+            result = search_hook.send(self, query_string=query_string, **kwargs)
+            return result[0][1]
+
+
+class GAEDatastoreAPI(BaseResourceAPI):
+    def __init__(self, datastore, **kwargs):
+        super(GAEDatastoreAPI, self).__init__(**kwargs)
+        self.datastore = datastore
+
+    def _insert(self, resource_object, **kwargs):
+        yield self.datastore.insert(resource_object=resource_object, **kwargs)
+
+    def insert(self, resource_object, **kwargs):
+        return apimethod(self._insert(resource_object=resource_object, **kwargs))
+
+    # @ndb.tasklet
+    # def _get(self, resource_uid, **kwargs):
+    #     pre_hook = signal('pre_get')
+    #     post_hook = signal('post_get')
+    #
+    #     if bool(pre_hook.receivers):
+    #         for receiver in pre_hook.receivers_for(self):
+    #             receiver(self, **kwargs)
+    #
+    #     result = yield self.datastore.get(resource_uid=resource_uid, **kwargs)
+    #
+    #     if bool(post_hook.receivers):
+    #         for receiver in post_hook.receivers_for(self):
+    #             receiver(self, result=result, **kwargs)
+    #
+    #     raise ndb.Return(result)
+
+    @ndb.tasklet
+    def _trigger_hook(self, hook_name, **kwargs):
+        hook = signal(hook_name)
+        if bool(hook.receivers):
+            for receiver in hook.receivers_for(self):
+                yield receiver(self, **kwargs)
+
+    @ndb.tasklet
+    def _get(self, resource_uid, **kwargs):
+        result = yield self.datastore.get(resource_uid=resource_uid, **kwargs)
+        raise ndb.Return(result)
+
+    @ndb.tasklet
+    def get(self, resource_uid, **kwargs):
+        """
+        This is a little wrapper around the actual get method. It provides asynchronous signalling around the method.
+        The signals can be used by other APIs to perform additional work.
+
+        If you want to skip all of that, or implement your own wrapper, you can simply override this method or call
+        '_get' directly.
+
+        The 'pre_get' signal may raise exceptions to block the method from completing.
+
+        Neither the 'pre_get' nor the 'post_get' signals can return values, and they should generally not modify the
+        values they are passed. While there is nothing to stop you modifying them, it will cause unexpected bugs.
+
+        :param resource_uid:
+        :param kwargs:
+        :return:
+        """
+        yield self._trigger_hook(hook_name='pre_get', resource_uid=resource_uid, **kwargs)
+        result = yield self._get(resource_uid=resource_uid, **kwargs)
+        yield self._trigger_hook(hook_name='pre_get', resource_uid=resource_uid, result=result, **kwargs)
+
+        raise ndb.Return(result)
+
+    @apimethod
+    def update(self, resource_object, **kwargs):
+        return self.datastore.update(resource_object=resource_object, **kwargs)
+
+    @apimethod
+    def patch(self, resource_uid, delta_update, **kwargs):
+        return self.datastore.patch(resource_uid=resource_uid, delta_update=delta_update, **kwargs)
+
+    @apimethod
+    def delete(self, resource_uid, **kwargs):
+        self.datastore.delete(resource_uid=resource_uid, **kwargs)
+
+    @apimethod
+    def query(self, query_args, **kwargs):
+        return self.datastore.query(query_params=query_args, **kwargs)
+
+
+class GAEAPI(GAEDatastoreAPI):
+    def __init__(self, search_index, **kwargs):
+        super(GAEAPI, self).__init__(**kwargs)
+        self.search_index = search_index
+        self.search_update_queue = search_index.update_queue
+
+    def _insert(self, resource_object, **kwargs):
+        resource_uid = super(GAEAPI, self)._insert(resource_object=resource_object, **kwargs)
+        deferred.defer(self._update_search_index, resource_uid=resource_uid, _queue=self.search_update_queue)
+        yield resource_uid
+
+    @apimethod
+    def update(self, resource_object, **kwargs):
+        resource_uid = super(GAEAPI, self).update(resource_object=resource_object, **kwargs)
         deferred.defer(self._update_search_index, resource_uid=resource_uid, _queue=self.search_update_queue)
         return resource_uid
 
     @apimethod
     def patch(self, resource_uid, delta_update, **kwargs):
-        resource_uid = self.datastore.patch(resource_uid=resource_uid, delta_update=delta_update, **kwargs)
+        resource_uid = super(GAEAPI, self).patch(resource_uid=resource_uid, delta_update=delta_update, **kwargs)
         deferred.defer(self._update_search_index, resource_uid=resource_uid, _queue=self.search_update_queue)
 
     @apimethod
     def delete(self, resource_uid, **kwargs):
-        self.datastore.delete(resource_uid=resource_uid, **kwargs)
+        super(GAEAPI, self).delete(resource_uid=resource_uid, **kwargs)
         deferred.defer(self._delete_search_index, resource_uid=resource_uid, _queue=self.search_update_queue)
 
     @apimethod
     def search(self, query_string, **kwargs):
-        search_result = self.datastore.search(query_string=query_string, **kwargs)
-        return search_result
+        return self.datastore.search(query_string=query_string, **kwargs)
 
     def _update_search_index(self, resource_uid, **kwargs):
         resource = self.get(resource_uid=resource_uid)
@@ -177,6 +371,8 @@ def init_api(api_name, api_def, parent=None, default_api=GAEAPI, default_datasto
     except KeyError:
         sub_api_defs = None
 
+    # TODO: APIs may not need a datastore or search_index. Need to find a good way of skipping these next two blocks.
+    # At the moment we handle it by just forcing the BaseAPI class to accept **kwargs
     # Update the default datastore config with the user supplied values and set them in the def
     default_datastore_config = {
         'type': default_datastore,
@@ -219,6 +415,7 @@ def init_api(api_name, api_def, parent=None, default_api=GAEAPI, default_datasto
     default_api_config = {
         'type': default_api,
         'strict_parent': False,
+        'create_cache': False,
         'parent': parent
     }
 
@@ -260,125 +457,125 @@ def parse_api_config(api_definition, default_api=GAEAPI, default_datastore=Datas
     return api
 
 
-class BaseAPI(object):
-    _api_name = ''
-    _api_model = None
-    _datastore_interface = None
-    _search_interface = None
-
-    @classmethod
-    def new(cls, **kwargs):
-        return cls._api_model(**kwargs)
-
-    @classmethod
-    def insert(cls, resource_object, **kwargs):
-        if signal('pre_insert').has_receivers_for(cls):
-            signal('pre_insert').send(cls, resource_object=resource_object, **kwargs)
-
-        resource_uid = cls._datastore_interface.insert(resource_object=resource_object, **kwargs)
-        deferred.defer(cls._update_search_index, resource_uid=resource_uid, _queue='search-index-update')
-
-        if signal('post_insert').has_receivers_for(cls):
-            signal('post_insert').send(cls, result=resource_uid, resource_uid=resource_uid, resource_object=resource_object, **kwargs)
-        return resource_uid
-
-    @classmethod
-    def get(cls, resource_uid, **kwargs):
-        if signal('pre_get').has_receivers_for(cls):
-            signal('pre_get').send(cls, resource_uid=resource_uid, **kwargs)
-
-        resource = cls._datastore_interface.get(resource_uid=resource_uid)
-
-        if signal('post_get').has_receivers_for(cls):
-            signal('post_get').send(cls, result=resource, resource_uid=resource_uid, **kwargs)
-
-        return resource
-
-    @classmethod
-    def update(cls, resource_object, **kwargs):
-        if signal('pre_update').has_receivers_for(cls):
-            signal('pre_update').send(cls, resource_object=resource_object, **kwargs)
-
-        resource_uid = cls._datastore_interface.update(resource_object=resource_object, **kwargs)
-        deferred.defer(cls._update_search_index, resource_uid=resource_uid, _queue='search-index-update')
-
-        if signal('post_update').has_receivers_for(cls):
-            signal('post_update').send(cls, result=resource_uid, resource_uid=resource_uid, resource_object=resource_object, **kwargs)
-
-        return resource_uid
-
-    @classmethod
-    def patch(cls, resource_uid, delta_update, **kwargs):
-        if signal('pre_patch').has_receivers_for(cls):
-            signal('pre_patch').send(cls, resource_uid=resource_uid, delta_update=delta_update, **kwargs)
-
-        resource_uid = cls._datastore_interface.patch(resource_uid=resource_uid, delta_update=delta_update, **kwargs)
-        deferred.defer(cls._update_search_index, resource_uid=resource_uid, _queue='search-index-update')
-
-        if signal('post_patch').has_receivers_for(cls):
-            signal('post_patch').send(cls, result=resource_uid, resource_uid=resource_uid, delta_update=delta_update, **kwargs)
-
-        return resource_uid
-
-    @classmethod
-    def delete(cls, resource_uid, **kwargs):
-        if signal('pre_delete').has_receivers_for(cls):
-            signal('pre_delete').send(cls, resource_uid=resource_uid, **kwargs)
-
-        cls._datastore_interface.delete(resource_uid=resource_uid, **kwargs)
-        deferred.defer(cls._delete_search_index, resource_uid=resource_uid, _queue='search-index-update')
-
-        if signal('post_delete').has_receivers_for(cls):
-            signal('post_delete').send(cls, result=None, resource_uid=resource_uid, **kwargs)
-
-    @classmethod
-    def search(cls, query_string, **kwargs):
-        if signal('pre_search').has_receivers_for(cls):
-            signal('pre_search').send(cls, query_string=query_string, **kwargs)
-
-        search_result = cls._search_interface.search(query_string=query_string, **kwargs)
-
-        if signal('post_search').has_receivers_for(cls):
-            signal('post_search').send(cls, result=search_result, query_string=query_string, **kwargs)
-
-        return search_result
-
-    @classmethod
-    def _update_search_index(cls, resource_uid, **kwargs):
-        resource = cls.get(resource_uid=resource_uid)
-        cls._search_interface.insert(resource_object=resource, **kwargs)
-
-    @classmethod
-    def _delete_search_index(cls, resource_uid, **kwargs):
-        cls._search_interface.delete(resource_object_uid=resource_uid, **kwargs)
-
-
-class BaseSubAPI(object):
-    _api_name = ''
-    _parent_api = None
-    _allowed_patch_keys = set()
-
-    @classmethod
-    def _parse_patch_keys(cls, delta_update):
-        delta_keys = set(delta_update.keys())
-        unauthorized_keys = delta_keys - cls._allowed_patch_keys
-        if unauthorized_keys:
-            raise ValueError(u'Cannot perform patch as "{}" are unauthorized keys'.format(unauthorized_keys))
-
-    @classmethod
-    def patch(cls, resource_uid, delta_update, **kwargs):
-        cls._parse_patch_keys(delta_update=delta_update)
-
-        if signal('pre_patch').has_receivers_for(cls):
-            signal('pre_patch').send(cls, resource_uid=resource_uid, delta_update=delta_update, **kwargs)
-
-        resource_uid = cls._parent_api._datastore_interface.patch(resource_uid=resource_uid, delta_update=delta_update, **kwargs)
-        deferred.defer(cls._parent_api._update_search_index, resource_uid=resource_uid, _queue='search-index-update')
-
-        if signal('post_patch').has_receivers_for(cls):
-            signal('post_patch').send(cls, result=resource_uid, resource_uid=resource_uid, delta_update=delta_update, **kwargs)
-
-        return resource_uid
+# class BaseAPI(object):
+#     _api_name = ''
+#     _api_model = None
+#     _datastore_interface = None
+#     _search_interface = None
+#
+#     @classmethod
+#     def new(cls, **kwargs):
+#         return cls._api_model(**kwargs)
+#
+#     @classmethod
+#     def insert(cls, resource_object, **kwargs):
+#         if signal('pre_insert').has_receivers_for(cls):
+#             signal('pre_insert').send(cls, resource_object=resource_object, **kwargs)
+#
+#         resource_uid = cls._datastore_interface.insert(resource_object=resource_object, **kwargs)
+#         deferred.defer(cls._update_search_index, resource_uid=resource_uid, _queue='search-index-update')
+#
+#         if signal('post_insert').has_receivers_for(cls):
+#             signal('post_insert').send(cls, result=resource_uid, resource_uid=resource_uid, resource_object=resource_object, **kwargs)
+#         return resource_uid
+#
+#     @classmethod
+#     def get(cls, resource_uid, **kwargs):
+#         if signal('pre_get').has_receivers_for(cls):
+#             signal('pre_get').send(cls, resource_uid=resource_uid, **kwargs)
+#
+#         resource = cls._datastore_interface.get(resource_uid=resource_uid)
+#
+#         if signal('post_get').has_receivers_for(cls):
+#             signal('post_get').send(cls, result=resource, resource_uid=resource_uid, **kwargs)
+#
+#         return resource
+#
+#     @classmethod
+#     def update(cls, resource_object, **kwargs):
+#         if signal('pre_update').has_receivers_for(cls):
+#             signal('pre_update').send(cls, resource_object=resource_object, **kwargs)
+#
+#         resource_uid = cls._datastore_interface.update(resource_object=resource_object, **kwargs)
+#         deferred.defer(cls._update_search_index, resource_uid=resource_uid, _queue='search-index-update')
+#
+#         if signal('post_update').has_receivers_for(cls):
+#             signal('post_update').send(cls, result=resource_uid, resource_uid=resource_uid, resource_object=resource_object, **kwargs)
+#
+#         return resource_uid
+#
+#     @classmethod
+#     def patch(cls, resource_uid, delta_update, **kwargs):
+#         if signal('pre_patch').has_receivers_for(cls):
+#             signal('pre_patch').send(cls, resource_uid=resource_uid, delta_update=delta_update, **kwargs)
+#
+#         resource_uid = cls._datastore_interface.patch(resource_uid=resource_uid, delta_update=delta_update, **kwargs)
+#         deferred.defer(cls._update_search_index, resource_uid=resource_uid, _queue='search-index-update')
+#
+#         if signal('post_patch').has_receivers_for(cls):
+#             signal('post_patch').send(cls, result=resource_uid, resource_uid=resource_uid, delta_update=delta_update, **kwargs)
+#
+#         return resource_uid
+#
+#     @classmethod
+#     def delete(cls, resource_uid, **kwargs):
+#         if signal('pre_delete').has_receivers_for(cls):
+#             signal('pre_delete').send(cls, resource_uid=resource_uid, **kwargs)
+#
+#         cls._datastore_interface.delete(resource_uid=resource_uid, **kwargs)
+#         deferred.defer(cls._delete_search_index, resource_uid=resource_uid, _queue='search-index-update')
+#
+#         if signal('post_delete').has_receivers_for(cls):
+#             signal('post_delete').send(cls, result=None, resource_uid=resource_uid, **kwargs)
+#
+#     @classmethod
+#     def search(cls, query_string, **kwargs):
+#         if signal('pre_search').has_receivers_for(cls):
+#             signal('pre_search').send(cls, query_string=query_string, **kwargs)
+#
+#         search_result = cls._search_interface.search(query_string=query_string, **kwargs)
+#
+#         if signal('post_search').has_receivers_for(cls):
+#             signal('post_search').send(cls, result=search_result, query_string=query_string, **kwargs)
+#
+#         return search_result
+#
+#     @classmethod
+#     def _update_search_index(cls, resource_uid, **kwargs):
+#         resource = cls.get(resource_uid=resource_uid)
+#         cls._search_interface.insert(resource_object=resource, **kwargs)
+#
+#     @classmethod
+#     def _delete_search_index(cls, resource_uid, **kwargs):
+#         cls._search_interface.delete(resource_object_uid=resource_uid, **kwargs)
+#
+#
+# class BaseSubAPI(object):
+#     _api_name = ''
+#     _parent_api = None
+#     _allowed_patch_keys = set()
+#
+#     @classmethod
+#     def _parse_patch_keys(cls, delta_update):
+#         delta_keys = set(delta_update.keys())
+#         unauthorized_keys = delta_keys - cls._allowed_patch_keys
+#         if unauthorized_keys:
+#             raise ValueError(u'Cannot perform patch as "{}" are unauthorized keys'.format(unauthorized_keys))
+#
+#     @classmethod
+#     def patch(cls, resource_uid, delta_update, **kwargs):
+#         cls._parse_patch_keys(delta_update=delta_update)
+#
+#         if signal('pre_patch').has_receivers_for(cls):
+#             signal('pre_patch').send(cls, resource_uid=resource_uid, delta_update=delta_update, **kwargs)
+#
+#         resource_uid = cls._parent_api._datastore_interface.patch(resource_uid=resource_uid, delta_update=delta_update, **kwargs)
+#         deferred.defer(cls._parent_api._update_search_index, resource_uid=resource_uid, _queue='search-index-update')
+#
+#         if signal('post_patch').has_receivers_for(cls):
+#             signal('post_patch').send(cls, result=resource_uid, resource_uid=resource_uid, delta_update=delta_update, **kwargs)
+#
+#         return resource_uid
 
 
 class BaseResourceProperty(object):

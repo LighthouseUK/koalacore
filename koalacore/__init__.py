@@ -24,7 +24,7 @@ if STATICA_HACK:  # pragma: no cover
     # This is never executed, but tricks static analyzers (PyDev, PyCharm,
     # pylint, etc.) into knowing the types of these symbols, and what
     # they contain.
-    from koalacore.api import BaseAPI, BaseSubAPI, BaseResource, Resource, BaseResourceProperty, ResourceProperty, ComputedResourceProperty, SearchResult, SearchResultProperty  # noqa
+    from koalacore.api import BaseAPI, BaseResource, Resource, BaseResourceProperty, ResourceProperty, ComputedResourceProperty, SearchResult, SearchResultProperty  # noqa
     from koalacore.tools import DictDiffer, generate_autocomplete_tokens, eval_boolean_string, convert_to_unicode, csv_item_convert  # noqa
     from koalacore.search import GAESearchInterface, Result, KoalaSearchInterface  # noga
     from koalacore.rbac import PermissionDenied, PermissionsStorage, RBAC  # noga
@@ -37,7 +37,7 @@ if STATICA_HACK:  # pragma: no cover
 
 # import mapping to objects in other modules
 all_by_module = {
-    '{}.api'.format(PACKAGE_NAME): ['BaseAPI', 'BaseSubAPI', 'BaseResource', 'Resource', 'BaseResourceProperty', 'ResourceProperty', 'ComputedResourceProperty', 'SearchResult', 'SearchResultProperty'],
+    '{}.api'.format(PACKAGE_NAME): ['BaseAPI', 'BaseResource', 'Resource', 'BaseResourceProperty', 'ResourceProperty', 'ComputedResourceProperty', 'SearchResult', 'SearchResultProperty'],
     '{}.tools'.format(PACKAGE_NAME): ['DictDiffer', 'generate_autocomplete_tokens', 'eval_boolean_string', 'convert_to_unicode', 'csv_item_convert'],
     '{}.search'.format(PACKAGE_NAME): ['GAESearchInterface', 'Result', 'KoalaSearchInterface'],
     '{}.rbac'.format(PACKAGE_NAME): ['PermissionDenied', 'PermissionsStorage', 'RBAC'],

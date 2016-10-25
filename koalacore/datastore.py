@@ -14,9 +14,14 @@ from .exceptions import KoalaException
 __author__ = 'Matt Badger'
 
 
-class DatastoreMock(object):
+class BaseDatastoreMock(object):
     def __init__(self, *args, **kwargs):
         pass
+
+    def __getattr__(self, name):
+        def wrapper(*args, **kwargs):
+            print "'%s' was called" % name
+        return wrapper
 
 
 class ResourceNotFound(KoalaException):
@@ -717,6 +722,15 @@ else:
         # Required libraries are not available; skip definition
         pass
     else:
+        class DatastoreMock(object):
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def __getattr__(self, name):
+                def wrapper(*args, **kwargs):
+                    raise ndb.Return("'%s' was called" % name)
+                return wrapper
+
         class KoalaNDB(EventedDatastoreInterface):
             """
             NDB Evented Datastore Interface. Implements the base datastore methods above and adds in some additional
