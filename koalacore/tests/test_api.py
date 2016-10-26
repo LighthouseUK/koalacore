@@ -9,7 +9,7 @@
 """
 import unittest
 from blinker import signal
-from koalacore.api import parse_api_config, GAEAPI, GAEDatastoreAPI, BaseAPI, Resource
+from koalacore.api import parse_api_config, GAEAPI, GAEDatastoreAPIAsync, BaseAPI, Resource
 from koalacore.datastore import DatastoreMock, NDBResource
 from koalacore.search import SearchMock
 from google.appengine.ext import testbed
@@ -97,7 +97,7 @@ SECURITY_API_CONFIG = {
     'create_cache': True,
     'sub_apis': {
         'inode': {
-            'type': GAEDatastoreAPI,
+            'type': GAEDatastoreAPIAsync,
             'resource_model': INodeResource,
             'strict_parent': False,
             'datastore_config': {
