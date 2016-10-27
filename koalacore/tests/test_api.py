@@ -293,26 +293,81 @@ class TestAPIConfigParser(unittest.TestCase):
         self.assertEqual(len(tasks), 1, u'Deferred task missing')
         # deferred.run(tasks[0].payload)  # Doesn't return anything so nothing to test
 
-    # def test_update(self):
-    #     test_api = self.build_api()
-    #     signal_tester_1 = AsyncSignalTester()
-    #     signal_tester_2 = AsyncSignalTester()
-    #
-    #     signal('pre_update').connect(signal_tester_1.hook_subscriber, sender=test_api.companies)
-    #     signal('pre_update').connect(signal_tester_2.hook_subscriber, sender=test_api.companies)
-    #     signal('post_update').connect(signal_tester_1.hook_subscriber, sender=test_api.companies)
-    #     signal('post_update').connect(signal_tester_2.hook_subscriber, sender=test_api.companies)
-    #     result_future = test_api.companies.update(resource_object=IdentityResource(), id='thisisatestidentitykey')
-    #     result = result_future.get_result()
-    #
-    #     self.assertEqual(len(signal_tester_1.hook_activations['pre_update'][test_api.companies]), 1, u'Update should trigger 1 pre hooks')
-    #     self.assertEqual(len(signal_tester_1.hook_activations['post_update'][test_api.companies]), 1, u'Update should trigger 1 post hooks')
-    #     self.assertEqual(len(signal_tester_2.hook_activations['pre_update'][test_api.companies]), 1, u'Update should trigger 1 pre hooks')
-    #     self.assertEqual(len(signal_tester_2.hook_activations['post_update'][test_api.companies]), 1, u'Update should trigger 1 post hooks')
-    #
-    #     tasks = self.task_queue.get_filtered_tasks()
-    #     self.assertEqual(len(tasks), 1, u'Deferred task missing')
-    #     # deferred.run(tasks[0].payload)  # Doesn't return anything so nothing to test
+    def test_update(self):
+        test_api = self.build_api()
+        signal_tester_1 = AsyncSignalTester()
+        signal_tester_2 = AsyncSignalTester()
+
+        signal('pre_update').connect(signal_tester_1.hook_subscriber, sender=test_api.companies)
+        signal('pre_update').connect(signal_tester_2.hook_subscriber, sender=test_api.companies)
+        signal('post_update').connect(signal_tester_1.hook_subscriber, sender=test_api.companies)
+        signal('post_update').connect(signal_tester_2.hook_subscriber, sender=test_api.companies)
+        result_future = test_api.companies.update(resource_object=IdentityResource(), id='thisisatestidentitykey')
+        result = result_future.get_result()
+
+        self.assertEqual(len(signal_tester_1.hook_activations['pre_update'][test_api.companies]), 1, u'Update should trigger 1 pre hooks')
+        self.assertEqual(len(signal_tester_1.hook_activations['post_update'][test_api.companies]), 1, u'Update should trigger 1 post hooks')
+        self.assertEqual(len(signal_tester_2.hook_activations['pre_update'][test_api.companies]), 1, u'Update should trigger 1 pre hooks')
+        self.assertEqual(len(signal_tester_2.hook_activations['post_update'][test_api.companies]), 1, u'Update should trigger 1 post hooks')
+
+        tasks = self.task_queue.get_filtered_tasks()
+        self.assertEqual(len(tasks), 1, u'Deferred task missing')
+        # deferred.run(tasks[0].payload)  # Doesn't return anything so nothing to test
+
+    def test_delete(self):
+        test_api = self.build_api()
+        signal_tester_1 = AsyncSignalTester()
+        signal_tester_2 = AsyncSignalTester()
+
+        signal('pre_delete').connect(signal_tester_1.hook_subscriber, sender=test_api.companies)
+        signal('pre_delete').connect(signal_tester_2.hook_subscriber, sender=test_api.companies)
+        signal('post_delete').connect(signal_tester_1.hook_subscriber, sender=test_api.companies)
+        signal('post_delete').connect(signal_tester_2.hook_subscriber, sender=test_api.companies)
+        result_future = test_api.companies.delete(resource_uid='testresourceid', id='thisisatestidentitykey')
+        result = result_future.get_result()
+
+        self.assertEqual(len(signal_tester_1.hook_activations['pre_delete'][test_api.companies]), 1, u'Delete should trigger 1 pre hooks')
+        self.assertEqual(len(signal_tester_1.hook_activations['post_delete'][test_api.companies]), 1, u'Delete should trigger 1 post hooks')
+        self.assertEqual(len(signal_tester_2.hook_activations['pre_delete'][test_api.companies]), 1, u'Delete should trigger 1 pre hooks')
+        self.assertEqual(len(signal_tester_2.hook_activations['post_delete'][test_api.companies]), 1, u'Delete should trigger 1 post hooks')
+
+        tasks = self.task_queue.get_filtered_tasks()
+        self.assertEqual(len(tasks), 1, u'Deferred task missing')
+        # deferred.run(tasks[0].payload)  # Doesn't return anything so nothing to test
+
+    def test_search(self):
+        test_api = self.build_api()
+        signal_tester_1 = AsyncSignalTester()
+        signal_tester_2 = AsyncSignalTester()
+
+        signal('pre_search').connect(signal_tester_1.hook_subscriber, sender=test_api.companies)
+        signal('pre_search').connect(signal_tester_2.hook_subscriber, sender=test_api.companies)
+        signal('post_search').connect(signal_tester_1.hook_subscriber, sender=test_api.companies)
+        signal('post_search').connect(signal_tester_2.hook_subscriber, sender=test_api.companies)
+        result_future = test_api.companies.search(query_string='testresourceid', id='thisisatestidentitykey')
+        result = result_future.get_result()
+
+        self.assertEqual(len(signal_tester_1.hook_activations['pre_search'][test_api.companies]), 1, u'Search should trigger 1 pre hooks')
+        self.assertEqual(len(signal_tester_1.hook_activations['post_search'][test_api.companies]), 1, u'Search should trigger 1 post hooks')
+        self.assertEqual(len(signal_tester_2.hook_activations['pre_search'][test_api.companies]), 1, u'Search should trigger 1 pre hooks')
+        self.assertEqual(len(signal_tester_2.hook_activations['post_search'][test_api.companies]), 1, u'Search should trigger 1 post hooks')
+
+    def test_query(self):
+        test_api = self.build_api()
+        signal_tester_1 = AsyncSignalTester()
+        signal_tester_2 = AsyncSignalTester()
+
+        signal('pre_query').connect(signal_tester_1.hook_subscriber, sender=test_api.companies)
+        signal('pre_query').connect(signal_tester_2.hook_subscriber, sender=test_api.companies)
+        signal('post_query').connect(signal_tester_1.hook_subscriber, sender=test_api.companies)
+        signal('post_query').connect(signal_tester_2.hook_subscriber, sender=test_api.companies)
+        result_future = test_api.companies.query(query_params='testresourceid', id='thisisatestidentitykey')
+        result = result_future.get_result()
+
+        self.assertEqual(len(signal_tester_1.hook_activations['pre_query'][test_api.companies]), 1, u'Query should trigger 1 pre hooks')
+        self.assertEqual(len(signal_tester_1.hook_activations['post_query'][test_api.companies]), 1, u'Query should trigger 1 post hooks')
+        self.assertEqual(len(signal_tester_2.hook_activations['pre_query'][test_api.companies]), 1, u'Query should trigger 1 pre hooks')
+        self.assertEqual(len(signal_tester_2.hook_activations['post_query'][test_api.companies]), 1, u'Query should trigger 1 post hooks')
 
 
 

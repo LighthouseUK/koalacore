@@ -433,8 +433,8 @@ class GAEDatastoreAPIAsync(BaseAsyncResourceAPI):
         raise ndb.Return(result)
 
     @async
-    def _query(self, query_args, **kwargs):
-        result = yield self.datastore.query(query_params=query_args, **kwargs)
+    def _query(self, query_params, **kwargs):
+        result = yield self.datastore.query(query_params=query_params, **kwargs)
         raise ndb.Return(result)
 
 
@@ -452,35 +452,38 @@ class GAEAPI(GAEDatastoreAPIAsync):
 
     @async
     def _update(self, resource_object, **kwargs):
-        resource_uid = yield super(GAEAPI, self).update(resource_object=resource_object, **kwargs)
+        resource_uid = yield super(GAEAPI, self)._update(resource_object=resource_object, **kwargs)
         deferred.defer(self._update_search_index, resource_uid=resource_uid, _queue=self.search_update_queue)
         raise ndb.Return(resource_uid)
 
     @async
     def _patch(self, resource_uid, delta_update, **kwargs):
-        resource_uid = yield super(GAEAPI, self).patch(resource_uid=resource_uid, delta_update=delta_update, **kwargs)
+        resource_uid = yield super(GAEAPI, self)._patch(resource_uid=resource_uid, delta_update=delta_update, **kwargs)
         deferred.defer(self._update_search_index, resource_uid=resource_uid, _queue=self.search_update_queue)
         raise ndb.Return(resource_uid)
 
     @async
     def _delete(self, resource_uid, **kwargs):
-        result = yield super(GAEAPI, self).delete(resource_uid=resource_uid, **kwargs)
+        result = yield super(GAEAPI, self)._delete(resource_uid=resource_uid, **kwargs)
         deferred.defer(self._delete_search_index, resource_uid=resource_uid, _queue=self.search_update_queue)
         raise ndb.Return(result)
 
     @async
     def _search(self, query_string, **kwargs):
-        result = yield self.datastore.search(query_string=query_string, **kwargs)
+        # TODO: change this to use an underscore method?
+        result = yield self.search_index.search(query_string=query_string, **kwargs)
         raise ndb.Return(result)
 
     @sync
     def _update_search_index(self, resource_uid, **kwargs):
         resource = yield self.get(resource_uid=resource_uid)
+        # TODO: change this to use an underscore method?
         result = yield self.search_index.insert(resource_object=resource, **kwargs)
         raise ndb.Return(result)
 
     @sync
     def _delete_search_index(self, resource_uid, **kwargs):
+        # TODO: change this to use an underscore method?
         result = yield self.search_index.delete(resource_object_uid=resource_uid, **kwargs)
         raise ndb.Return(result)
 
