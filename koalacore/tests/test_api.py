@@ -92,6 +92,21 @@ def create_user_identity(sender, **kwargs):
     pass
 
 
+@ndb.tasklet
+def check_permissions(sender, identity_uid, resource_uid, **kwargs):
+    # TODO: call the authorize method
+    # how do we know if it is strict parent or not?
+    # Don't want to pass the api instance around if we can avoid it.
+    pass
+
+
+@ndb.tasklet
+def get_uid_and_check_permissions(sender, identity_uid, resource_object, **kwargs):
+    if not resource_object.uid:
+        raise ValueError('Resource object does not have a valid UID')
+    yield check_permissions(sender=sender, identity_uid=identity_uid, resource_uid=resource_object.uid, **kwargs)
+
+
 SECURITY_API_CONFIG = {
     'type': Security,
     'strict_parent': False,

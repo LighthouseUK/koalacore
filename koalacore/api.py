@@ -178,15 +178,17 @@ class BaseAPI(object):
 
 
 class BaseAsyncResourceAPI(BaseAPI):
-    def __init__(self, resource_model, **kwargs):
+    def __init__(self, code_name, resource_model, **kwargs):
+        self.code_name = code_name
         self.resource_model = resource_model
         super(BaseAsyncResourceAPI, self).__init__(**kwargs)
 
     @async
-    def _trigger_hook(self, hook_name, **kwargs):
+    def _trigger_hook(self, hook_name, method_name, **kwargs):
         hook = signal(hook_name)
         if bool(hook.receivers):
             kwargs['hook_name'] = hook_name
+            kwargs['action'] = '{}_{}'.format(method_name, self.code_name)
             for receiver in hook.receivers_for(self):
                 yield receiver(self, **kwargs)
 
@@ -197,7 +199,7 @@ class BaseAsyncResourceAPI(BaseAPI):
 
     @async
     def _insert(self, resource_object, **kwargs):
-        result = yield self._trigger_hook(hook_name='insert', resource_object=resource_object, **kwargs)
+        result = yield self._trigger_hook(hook_name='insert', method_name='insert', resource_object=resource_object, **kwargs)
         raise ndb.Return(result)
 
     @async
@@ -218,15 +220,15 @@ class BaseAsyncResourceAPI(BaseAPI):
         :param kwargs:
         :return:
         """
-        yield self._trigger_hook(hook_name='pre_insert', resource_object=resource_object, **kwargs)
+        yield self._trigger_hook(hook_name='pre_insert', method_name='insert', resource_object=resource_object, **kwargs)
         result = yield self._insert(resource_object=resource_object, **kwargs)
-        yield self._trigger_hook(hook_name='post_insert', resource_object=resource_object, result=result, **kwargs)
+        yield self._trigger_hook(hook_name='post_insert', method_name='insert', resource_object=resource_object, result=result, **kwargs)
 
         raise ndb.Return(result)
 
     @async
     def _get(self, resource_uid, **kwargs):
-        result = yield self._trigger_hook(hook_name='get', resource_uid=resource_uid, **kwargs)
+        result = yield self._trigger_hook(hook_name='get', method_name='get', resource_uid=resource_uid, **kwargs)
         raise ndb.Return(result)
 
     @async
@@ -247,15 +249,15 @@ class BaseAsyncResourceAPI(BaseAPI):
         :param kwargs:
         :return:
         """
-        yield self._trigger_hook(hook_name='pre_get', resource_uid=resource_uid, **kwargs)
+        yield self._trigger_hook(hook_name='pre_get', method_name='get', resource_uid=resource_uid, **kwargs)
         result = yield self._get(resource_uid=resource_uid, **kwargs)
-        yield self._trigger_hook(hook_name='post_get', resource_uid=resource_uid, result=result, **kwargs)
+        yield self._trigger_hook(hook_name='post_get', method_name='get', resource_uid=resource_uid, result=result, **kwargs)
 
         raise ndb.Return(result)
 
     @async
     def _update(self, resource_object, **kwargs):
-        result = yield self._trigger_hook(hook_name='update', resource_object=resource_object, **kwargs)
+        result = yield self._trigger_hook(hook_name='update', method_name='update', resource_object=resource_object, **kwargs)
         raise ndb.Return(result)
 
     @async
@@ -276,16 +278,15 @@ class BaseAsyncResourceAPI(BaseAPI):
         :param kwargs:
         :return:
         """
-        yield self._trigger_hook(hook_name='pre_update', resource_object=resource_object, **kwargs)
+        yield self._trigger_hook(hook_name='pre_update', method_name='update', resource_object=resource_object, **kwargs)
         result = yield self._update(resource_object=resource_object, **kwargs)
-        yield self._trigger_hook(hook_name='post_update', resource_object=resource_object, result=result, **kwargs)
+        yield self._trigger_hook(hook_name='post_update', method_name='update', resource_object=resource_object, result=result, **kwargs)
 
         raise ndb.Return(result)
 
     @async
     def _patch(self, resource_uid, delta_update, **kwargs):
-        result = yield self._trigger_hook(hook_name='patch', resource_uid=resource_uid, delta_update=delta_update,
-                                          **kwargs)
+        result = yield self._trigger_hook(hook_name='patch', method_name='patch', resource_uid=resource_uid, delta_update=delta_update, **kwargs)
         raise ndb.Return(result)
 
     @async
@@ -307,16 +308,15 @@ class BaseAsyncResourceAPI(BaseAPI):
         :param kwargs:
         :return:
         """
-        yield self._trigger_hook(hook_name='pre_patch', resource_uid=resource_uid, delta_update=delta_update, **kwargs)
+        yield self._trigger_hook(hook_name='pre_patch', method_name='patch', resource_uid=resource_uid, delta_update=delta_update, **kwargs)
         result = yield self._patch(resource_uid=resource_uid, delta_update=delta_update, **kwargs)
-        yield self._trigger_hook(hook_name='post_patch', resource_uid=resource_uid, delta_update=delta_update,
-                                 result=result, **kwargs)
+        yield self._trigger_hook(hook_name='post_patch', method_name='patch', resource_uid=resource_uid, delta_update=delta_update, result=result, **kwargs)
 
         raise ndb.Return(result)
 
     @async
     def _delete(self, resource_uid, **kwargs):
-        result = yield self._trigger_hook(hook_name='delete', resource_uid=resource_uid, **kwargs)
+        result = yield self._trigger_hook(hook_name='delete', method_name='delete', resource_uid=resource_uid, **kwargs)
         raise ndb.Return(result)
 
     @async
@@ -337,15 +337,15 @@ class BaseAsyncResourceAPI(BaseAPI):
         :param kwargs:
         :return:
         """
-        yield self._trigger_hook(hook_name='pre_delete', resource_uid=resource_uid, **kwargs)
+        yield self._trigger_hook(hook_name='pre_delete', method_name='delete', resource_uid=resource_uid, **kwargs)
         result = yield self._delete(resource_uid=resource_uid, **kwargs)
-        yield self._trigger_hook(hook_name='post_delete', resource_uid=resource_uid, result=result, **kwargs)
+        yield self._trigger_hook(hook_name='post_delete', method_name='delete', resource_uid=resource_uid, result=result, **kwargs)
 
         raise ndb.Return(result)
 
     @async
     def _query(self, query_params, **kwargs):
-        result = yield self._trigger_hook(hook_name='query', query_params=query_params, **kwargs)
+        result = yield self._trigger_hook(hook_name='query', method_name='query', query_params=query_params, **kwargs)
         raise ndb.Return(result)
 
     @async
@@ -366,15 +366,15 @@ class BaseAsyncResourceAPI(BaseAPI):
         :param kwargs:
         :return:
         """
-        yield self._trigger_hook(hook_name='pre_query', query_params=query_params, **kwargs)
+        yield self._trigger_hook(hook_name='pre_query', method_name='query', query_params=query_params, **kwargs)
         result = yield self._query(query_params=query_params, **kwargs)
-        yield self._trigger_hook(hook_name='post_query', query_params=query_params, result=result, **kwargs)
+        yield self._trigger_hook(hook_name='post_query', method_name='query', query_params=query_params, result=result, **kwargs)
 
         raise ndb.Return(result)
 
     @async
     def _search(self, query_string, **kwargs):
-        result = yield self._trigger_hook(hook_name='search', query_string=query_string, **kwargs)
+        result = yield self._trigger_hook(hook_name='search', method_name='search', query_string=query_string, **kwargs)
         raise ndb.Return(result)
 
     @async
@@ -395,9 +395,9 @@ class BaseAsyncResourceAPI(BaseAPI):
         :param kwargs:
         :return:
         """
-        yield self._trigger_hook(hook_name='pre_search', query_string=query_string, **kwargs)
+        yield self._trigger_hook(hook_name='pre_search', method_name='search', query_string=query_string, **kwargs)
         result = yield self._search(query_string=query_string, **kwargs)
-        yield self._trigger_hook(hook_name='post_search', query_string=query_string, result=result, **kwargs)
+        yield self._trigger_hook(hook_name='post_search', method_name='search', query_string=query_string, result=result, **kwargs)
 
         raise ndb.Return(result)
 
@@ -539,6 +539,7 @@ def init_api(api_name, api_def, parent=None, default_api=GAEAPI, default_datasto
     api_def['search_index'] = new_search_index_type(**default_search_config)
 
     default_api_config = {
+        'code_name': api_name,
         'type': default_api,
         'strict_parent': False,
         'create_cache': False,
