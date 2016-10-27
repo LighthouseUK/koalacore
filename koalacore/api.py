@@ -19,6 +19,7 @@ import google.appengine.ext.ndb as ndb
 __author__ = 'Matt Badger'
 
 async = ndb.tasklet
+sync = ndb.synctasklet
 # TODO: remove the deferred library dependency; extend the BaseAPI in an App Engine specific module to include deferred.
 
 # TODO: it is possible that these methods will fail and thus their result will be None. Passing this in a signal may
@@ -185,6 +186,7 @@ class BaseAsyncResourceAPI(BaseAPI):
     def _trigger_hook(self, hook_name, **kwargs):
         hook = signal(hook_name)
         if bool(hook.receivers):
+            kwargs['hook_name'] = hook_name
             for receiver in hook.receivers_for(self):
                 yield receiver(self, **kwargs)
 
@@ -218,7 +220,7 @@ class BaseAsyncResourceAPI(BaseAPI):
         """
         yield self._trigger_hook(hook_name='pre_insert', resource_object=resource_object, **kwargs)
         result = yield self._insert(resource_object=resource_object, **kwargs)
-        yield self._trigger_hook(hook_name='pre_insert', resource_object=resource_object, result=result, **kwargs)
+        yield self._trigger_hook(hook_name='post_insert', resource_object=resource_object, result=result, **kwargs)
 
         raise ndb.Return(result)
 
@@ -247,7 +249,7 @@ class BaseAsyncResourceAPI(BaseAPI):
         """
         yield self._trigger_hook(hook_name='pre_get', resource_uid=resource_uid, **kwargs)
         result = yield self._get(resource_uid=resource_uid, **kwargs)
-        yield self._trigger_hook(hook_name='pre_get', resource_uid=resource_uid, result=result, **kwargs)
+        yield self._trigger_hook(hook_name='post_get', resource_uid=resource_uid, result=result, **kwargs)
 
         raise ndb.Return(result)
 
@@ -276,7 +278,7 @@ class BaseAsyncResourceAPI(BaseAPI):
         """
         yield self._trigger_hook(hook_name='pre_update', resource_object=resource_object, **kwargs)
         result = yield self._update(resource_object=resource_object, **kwargs)
-        yield self._trigger_hook(hook_name='pre_update', resource_object=resource_object, result=result, **kwargs)
+        yield self._trigger_hook(hook_name='post_update', resource_object=resource_object, result=result, **kwargs)
 
         raise ndb.Return(result)
 
@@ -307,7 +309,7 @@ class BaseAsyncResourceAPI(BaseAPI):
         """
         yield self._trigger_hook(hook_name='pre_patch', resource_uid=resource_uid, delta_update=delta_update, **kwargs)
         result = yield self._patch(resource_uid=resource_uid, delta_update=delta_update, **kwargs)
-        yield self._trigger_hook(hook_name='pre_patch', resource_uid=resource_uid, delta_update=delta_update,
+        yield self._trigger_hook(hook_name='post_patch', resource_uid=resource_uid, delta_update=delta_update,
                                  result=result, **kwargs)
 
         raise ndb.Return(result)
@@ -337,7 +339,7 @@ class BaseAsyncResourceAPI(BaseAPI):
         """
         yield self._trigger_hook(hook_name='pre_delete', resource_uid=resource_uid, **kwargs)
         result = yield self._delete(resource_uid=resource_uid, **kwargs)
-        yield self._trigger_hook(hook_name='pre_delete', resource_uid=resource_uid, result=result, **kwargs)
+        yield self._trigger_hook(hook_name='post_delete', resource_uid=resource_uid, result=result, **kwargs)
 
         raise ndb.Return(result)
 
@@ -366,7 +368,7 @@ class BaseAsyncResourceAPI(BaseAPI):
         """
         yield self._trigger_hook(hook_name='pre_query', query_params=query_params, **kwargs)
         result = yield self._query(query_params=query_params, **kwargs)
-        yield self._trigger_hook(hook_name='pre_query', query_params=query_params, result=result, **kwargs)
+        yield self._trigger_hook(hook_name='post_query', query_params=query_params, result=result, **kwargs)
 
         raise ndb.Return(result)
 
@@ -395,7 +397,7 @@ class BaseAsyncResourceAPI(BaseAPI):
         """
         yield self._trigger_hook(hook_name='pre_search', query_string=query_string, **kwargs)
         result = yield self._search(query_string=query_string, **kwargs)
-        yield self._trigger_hook(hook_name='pre_search', query_string=query_string, result=result, **kwargs)
+        yield self._trigger_hook(hook_name='post_search', query_string=query_string, result=result, **kwargs)
 
         raise ndb.Return(result)
 
@@ -416,22 +418,22 @@ class GAEDatastoreAPIAsync(BaseAsyncResourceAPI):
         raise ndb.Return(result)
 
     @async
-    def update(self, resource_object, **kwargs):
+    def _update(self, resource_object, **kwargs):
         result = yield self.datastore.update(resource_object=resource_object, **kwargs)
         raise ndb.Return(result)
 
     @async
-    def patch(self, resource_uid, delta_update, **kwargs):
+    def _patch(self, resource_uid, delta_update, **kwargs):
         result = yield self.datastore.patch(resource_uid=resource_uid, delta_update=delta_update, **kwargs)
         raise ndb.Return(result)
 
     @async
-    def delete(self, resource_uid, **kwargs):
+    def _delete(self, resource_uid, **kwargs):
         result = yield self.datastore.delete(resource_uid=resource_uid, **kwargs)
         raise ndb.Return(result)
 
     @async
-    def query(self, query_args, **kwargs):
+    def _query(self, query_args, **kwargs):
         result = yield self.datastore.query(query_params=query_args, **kwargs)
         raise ndb.Return(result)
 
@@ -449,35 +451,35 @@ class GAEAPI(GAEDatastoreAPIAsync):
         raise ndb.Return(resource_uid)
 
     @async
-    def update(self, resource_object, **kwargs):
+    def _update(self, resource_object, **kwargs):
         resource_uid = yield super(GAEAPI, self).update(resource_object=resource_object, **kwargs)
         deferred.defer(self._update_search_index, resource_uid=resource_uid, _queue=self.search_update_queue)
         raise ndb.Return(resource_uid)
 
     @async
-    def patch(self, resource_uid, delta_update, **kwargs):
+    def _patch(self, resource_uid, delta_update, **kwargs):
         resource_uid = yield super(GAEAPI, self).patch(resource_uid=resource_uid, delta_update=delta_update, **kwargs)
         deferred.defer(self._update_search_index, resource_uid=resource_uid, _queue=self.search_update_queue)
         raise ndb.Return(resource_uid)
 
     @async
-    def delete(self, resource_uid, **kwargs):
+    def _delete(self, resource_uid, **kwargs):
         result = yield super(GAEAPI, self).delete(resource_uid=resource_uid, **kwargs)
         deferred.defer(self._delete_search_index, resource_uid=resource_uid, _queue=self.search_update_queue)
         raise ndb.Return(result)
 
     @async
-    def search(self, query_string, **kwargs):
+    def _search(self, query_string, **kwargs):
         result = yield self.datastore.search(query_string=query_string, **kwargs)
         raise ndb.Return(result)
 
-    @async
+    @sync
     def _update_search_index(self, resource_uid, **kwargs):
         resource = yield self.get(resource_uid=resource_uid)
         result = yield self.search_index.insert(resource_object=resource, **kwargs)
         raise ndb.Return(result)
 
-    @async
+    @sync
     def _delete_search_index(self, resource_uid, **kwargs):
         result = yield self.search_index.delete(resource_object_uid=resource_uid, **kwargs)
         raise ndb.Return(result)

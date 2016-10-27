@@ -727,9 +727,9 @@ else:
                 pass
 
             def __getattr__(self, name):
-                def wrapper(*args, **kwargs):
+                if not name.startswith('__') and not name.endswith('__'):
                     raise ndb.Return("'%s' was called" % name)
-                return wrapper
+                raise AttributeError("%r object has no attribute %r" % (self.__class__, name))
 
         class KoalaNDB(EventedDatastoreInterface):
             """

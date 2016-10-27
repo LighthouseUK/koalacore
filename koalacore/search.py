@@ -8,6 +8,7 @@
     :license: LGPL
 """
 import logging
+import google.appengine.ext.ndb as ndb
 
 __author__ = 'Matt Badger'
 
@@ -17,9 +18,9 @@ class SearchMock(object):
         self.update_queue = 'test'
 
     def __getattr__(self, name):
-        def wrapper(*args, **kwargs):
-            print "'%s' was called" % name
-        return wrapper
+        if not name.startswith('__') and not name.endswith('__'):
+            raise ndb.Return("'%s' was called" % name)
+        raise AttributeError("%r object has no attribute %r" % (self.__class__, name))
 
 
 class ClassPropertyDescriptor(object):

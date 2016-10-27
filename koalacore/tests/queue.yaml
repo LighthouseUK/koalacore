@@ -1,0 +1,35 @@
+queue:
+- name: test
+  mode: push
+  bucket_size: 100
+  rate: 3/s
+  max_concurrent_requests: 8
+  retry_parameters:
+    task_age_limit: 1d
+    min_backoff_seconds: 30
+    max_backoff_seconds: 600
+- name: deferredwork
+  mode: push
+  bucket_size: 100
+  rate: 3/s
+  max_concurrent_requests: 8
+  retry_parameters:
+    task_age_limit: 1d
+    min_backoff_seconds: 30
+    max_backoff_seconds: 600
+- name: resource-update
+  mode: push
+  bucket_size: 100
+  rate: 2/s
+  retry_parameters:
+    task_age_limit: 1d
+    min_backoff_seconds: 30
+    max_backoff_seconds: 600
+- name: search-index-update
+  mode: push
+  bucket_size: 100
+  rate: 3/s
+  retry_parameters:
+    task_age_limit: 1d
+    min_backoff_seconds: 30
+    max_backoff_seconds: 600
