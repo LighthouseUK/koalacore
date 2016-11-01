@@ -131,11 +131,16 @@ def cache_result(ttl=0, noc=0):
 
 
 class AsyncAPIMethod(object):
-    def __init__(self, code_name, api_name, spi):
+    def __init__(self, code_name, parent_api):
         self.code_name = code_name
-        self.api_name = api_name
-        self.spi = spi
-        self.action_name = '{}_{}'.format(self.code_name, self.api_name)
+        self.parent_api = parent_api
+
+        try:
+            self.spi = self.parent_api.spi
+        except AttributeError:
+            self.spi = None
+
+        self.action_name = '{}_{}'.format(self.code_name, self.parent_api.code_name)
         self.pre_name = 'pre_{}'.format(self.code_name)
         self.hook_name = self.code_name
         self.post_name = 'post_{}'.format(self.code_name)
@@ -198,7 +203,7 @@ class AsyncResourceAPI(BaseAPI):
 
         if self.methods is not None:
             for method in self.methods:
-                setattr(self, method, AsyncAPIMethod(code_name=method, api_name=self.code_name, spi=self.spi))
+                setattr(self, method, AsyncAPIMethod(code_name=method, parent_api=self))
 
 
 class BaseSPI(object):
@@ -566,7 +571,6 @@ def init_api(api_name, api_def, parent=None, default_api=AsyncResourceAPI, defau
     try:
         # sub apis should not be passed to the api constructor.
         sub_api_defs = api_def['sub_apis']
-        del api_def['sub_apis']
     except KeyError:
         sub_api_defs = None
 
@@ -596,6 +600,10 @@ def init_api(api_name, api_def, parent=None, default_api=AsyncResourceAPI, defau
     # Create the new api
     new_api_type = default_api_config['type']
     del default_api_config['type']
+
+    if sub_api_defs is not None:
+        # We shouldn't pass the sub_apis to the api constructor.
+        del default_api_config['sub_apis']
 
     try:
         default_api_config['spi'] = spi_type(**default_spi_config)
