@@ -57,21 +57,6 @@ def create_user_identity(sender, **kwargs):
     pass
 
 
-@ndb.tasklet
-def check_permissions(sender, identity_uid, resource_uid, **kwargs):
-    # TODO: call the authorize method
-    # how do we know if it is strict parent or not?
-    # Don't want to pass the api instance around if we can avoid it.
-    pass
-
-
-@ndb.tasklet
-def get_uid_and_check_permissions(sender, identity_uid, resource_object, **kwargs):
-    if not resource_object.uid:
-        raise ValueError('Resource object does not have a valid UID')
-    yield check_permissions(sender=sender, identity_uid=identity_uid, resource_uid=resource_object.uid, **kwargs)
-
-
 test_def = {
     'companies': {
         'strict_parent': False,
@@ -183,7 +168,7 @@ class TestAPIConfigParserDefaults(unittest.TestCase):
             signal(hook_name).connect(signal_tester_2.hook_subscriber, sender=method_instance)
             signal(post_name).connect(signal_tester_1.hook_subscriber, sender=method_instance)
             signal(post_name).connect(signal_tester_2.hook_subscriber, sender=method_instance)
-            result_future = method_instance(resource_uid='testresourceid', id='thisisatestidentitykey')
+            result_future = method_instance(resource_uid='testresourceid', identity_uid='thisisatestidentitykey')
             result = result_future.get_result()
 
             self.assertEqual(signal_tester_1.hook_activations_count, 3, u'{} should trigger 3 hooks'.format(api_method))
@@ -205,7 +190,7 @@ class TestAPIConfigParserDefaults(unittest.TestCase):
         signal('get').connect(signal_tester_2.hook_subscriber, sender=test_api.companies.get)
         signal('post_get').connect(signal_tester_1.hook_subscriber, sender=test_api.companies.get)
         signal('post_get').connect(signal_tester_2.hook_subscriber, sender=test_api.companies.get)
-        result_future = test_api.companies.get(resource_uid='testresourceid', id='thisisatestidentitykey')
+        result_future = test_api.companies.get(resource_uid='testresourceid', identity_uid='thisisatestidentitykey')
         result = result_future.get_result()
 
         self.assertEqual(signal_tester_1.hook_activations_count, 3, u'Get should trigger 3 hooks')
@@ -227,7 +212,7 @@ class TestAPIConfigParserDefaults(unittest.TestCase):
         signal('insert').connect(signal_tester_2.hook_subscriber, sender=test_api.companies.insert)
         signal('post_insert').connect(signal_tester_1.hook_subscriber, sender=test_api.companies.insert)
         signal('post_insert').connect(signal_tester_2.hook_subscriber, sender=test_api.companies.insert)
-        result_future = test_api.companies.insert(resource_object=IdentityResource(), id='thisisatestidentitykey')
+        result_future = test_api.companies.insert(resource_object=IdentityResource(), identity_uid='thisisatestidentitykey')
         result = result_future.get_result()
 
         self.assertEqual(signal_tester_1.hook_activations_count, 3, u'insert should trigger 3 hooks')
@@ -249,7 +234,7 @@ class TestAPIConfigParserDefaults(unittest.TestCase):
         signal('update').connect(signal_tester_2.hook_subscriber, sender=test_api.companies.update)
         signal('post_update').connect(signal_tester_1.hook_subscriber, sender=test_api.companies.update)
         signal('post_update').connect(signal_tester_2.hook_subscriber, sender=test_api.companies.update)
-        result_future = test_api.companies.update(resource_object=IdentityResource(), id='thisisatestidentitykey')
+        result_future = test_api.companies.update(resource_object=IdentityResource(), identity_uid='thisisatestidentitykey')
         result = result_future.get_result()
 
         self.assertEqual(signal_tester_1.hook_activations_count, 3, u'update should trigger 3 hooks')
@@ -271,7 +256,7 @@ class TestAPIConfigParserDefaults(unittest.TestCase):
         signal('delete').connect(signal_tester_2.hook_subscriber, sender=test_api.companies.delete)
         signal('post_delete').connect(signal_tester_1.hook_subscriber, sender=test_api.companies.delete)
         signal('post_delete').connect(signal_tester_2.hook_subscriber, sender=test_api.companies.delete)
-        result_future = test_api.companies.delete(resource_uid='testresourceid', id='thisisatestidentitykey')
+        result_future = test_api.companies.delete(resource_uid='testresourceid', identity_uid='thisisatestidentitykey')
         result = result_future.get_result()
 
         self.assertEqual(signal_tester_1.hook_activations_count, 3, u'delete should trigger 3 hooks')
@@ -293,7 +278,7 @@ class TestAPIConfigParserDefaults(unittest.TestCase):
         signal('search').connect(signal_tester_2.hook_subscriber, sender=test_api.companies.search)
         signal('post_search').connect(signal_tester_1.hook_subscriber, sender=test_api.companies.search)
         signal('post_search').connect(signal_tester_2.hook_subscriber, sender=test_api.companies.search)
-        result_future = test_api.companies.search(query_string='testresourceid', id='thisisatestidentitykey')
+        result_future = test_api.companies.search(query_string='testresourceid', identity_uid='thisisatestidentitykey')
         result = result_future.get_result()
 
         self.assertEqual(signal_tester_1.hook_activations_count, 3, u'search should trigger 3 hooks')
@@ -315,7 +300,7 @@ class TestAPIConfigParserDefaults(unittest.TestCase):
         signal('query').connect(signal_tester_2.hook_subscriber, sender=test_api.companies.query)
         signal('post_query').connect(signal_tester_1.hook_subscriber, sender=test_api.companies.query)
         signal('post_query').connect(signal_tester_2.hook_subscriber, sender=test_api.companies.query)
-        result_future = test_api.companies.query(query_params='testresourceid', id='thisisatestidentitykey')
+        result_future = test_api.companies.query(query_params='testresourceid', identity_uid='thisisatestidentitykey')
         result = result_future.get_result()
 
         self.assertEqual(signal_tester_1.hook_activations_count, 3, u'query should trigger 3 hooks')

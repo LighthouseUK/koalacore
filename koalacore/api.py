@@ -271,19 +271,22 @@ class GAESPI(BaseSPI):
 
 
 class Security(AsyncResourceAPI):
-    def __init__(self, **kwargs):
+    def __init__(self, valid_actions, pre_hook_names, **kwargs):
         # Init the inode and securityid apis. The default values will be ok here. We need to rely on the NDB datastore
         # because of the implementation. It's ok if the resources themselves are kept elsewhere.
 
         # TODO: for each op, take the resource uid. Should be string. Try to parse key. If fail then build one what we
         # can use as a parent key in the datastore
 
-        # TODO: auto add receivers for the each of the base api methods that go to the authorize method
-
         # TODO: auto add receivers for create and delete methods so that we can generate inodes for each resource. Do
         # in transaction?
 
         super(Security, self).__init__(**kwargs)
+        self.valid_actions = valid_actions
+        self.pre_hook_names = pre_hook_names
+
+        for pre_hook in pre_hook_names:
+            signal(pre_hook).connect(self.get_uid_and_check_permissions)
 
     def chmod(self):
         # Need to check that the user is authorized to perform this op
@@ -293,6 +296,7 @@ class Security(AsyncResourceAPI):
         # Need to check that the user is authorized to perform this op
         pass
 
+    @async
     def authorize(self, identity_uid, resource_uid, action, **kwargs):
         """
         identity_uid will generally be the uid for a user, but it could also apply to other 'users' such as client
@@ -308,6 +312,19 @@ class Security(AsyncResourceAPI):
         :return:
         """
         pass
+
+    @async
+    def get_uid_and_check_permissions(self, sender, identity_uid, resource_object=None, resource_uid=None, **kwargs):
+        if resource_object is None and resource_uid is None:
+            raise ValueError('You must supply a resource object or a resource uid to the authorize method')
+
+        if resource_object:
+            if not resource_object.uid:
+                raise ValueError('Resource object does not have a valid UID')
+
+            resource_uid = resource_object.uid
+
+        yield self.authorize(identity_uid=identity_uid, resource_uid=resource_uid, **kwargs)
 
 
 BASE_METHODS = ['insert', 'update', 'get', 'delete']
@@ -396,6 +413,21 @@ def walk_the_api(api, api_map):
         pass
 
 
+def compile_security_config(api_map, actions, pre_hook_names):
+    try:
+        for method, method_details in api_map['methods'].iteritems():
+            actions.add(method_details['action'])
+            pre_hook_names.add(method_details['hooks'][0])
+    except AttributeError:
+        pass
+
+    try:
+        for child, child_map in api_map['children'].iteritems():
+            compile_security_config(api_map=child_map, actions=actions, pre_hook_names=pre_hook_names)
+    except AttributeError:
+        pass
+
+
 def parse_api_config(api_definition, default_api=AsyncResourceAPI, default_methods=GAE_METHODS, koala_security=True):
     api = API()
 
@@ -407,12 +439,31 @@ def parse_api_config(api_definition, default_api=AsyncResourceAPI, default_metho
                  default_methods=default_methods)
         api.children.append(api_name)
 
-    if koala_security:
-        api_map = {}
-        walk_the_api(api=api, api_map=api_map)
-        api.map = api_map
+    api_map = {}
+    walk_the_api(api=api, api_map=api_map)
+    api.map = api_map
 
-        init_api(api_name='security', api_def=SECURITY_API_CONFIG, parent=api, default_api=Security, default_methods=None)
+    if koala_security:
+        actions = set()
+        pre_hook_names = set()
+        compile_security_config(api_map=api_map, actions=actions, pre_hook_names=pre_hook_names)
+
+        security_def = {
+            'type': Security,
+            'spi': {
+                'type': None,
+            },
+            'valid_actions': actions,
+            'pre_hook_names': pre_hook_names,
+            'sub_apis': {
+                'inode': {
+                },
+                'identity': {
+                },
+            }
+        }
+
+        init_api(api_name='security', api_def=security_def, parent=api, default_methods=None)
 
     return api
 
