@@ -60,8 +60,23 @@ example_def = {
 }
 
 
+SECURITY_API_CONFIG = {
+    'sub_apis': {
+        'inode': {
+        },
+        'identity': {
+        },
+    }
+}
+
+
 class API(object):
-    pass
+    def __init__(self, children=None):
+        self.map = None
+        if children is None:
+            self.children = []
+        else:
+            self.children = children
 
 
 def apimethodwrapper(f):
@@ -174,7 +189,7 @@ class AsyncAPIMethod(object):
 
 
 class BaseAPI(object):
-    def __init__(self, code_name, spi=None, methods=None, **kwargs):
+    def __init__(self, code_name, spi=None, methods=None, children=None, **kwargs):
         """
         code_name is the name of the API, taken from the api config.
 
@@ -184,11 +199,17 @@ class BaseAPI(object):
 
         :param code_name:
         :param spi:
+        :param children:
         :param methods:
         """
         self.code_name = code_name
         self.methods = methods
         self.spi = spi
+
+        if children is None:
+            self.children = []
+        else:
+            self.children = children
 
 
 class AsyncResourceAPI(BaseAPI):
@@ -248,317 +269,46 @@ class GAESPI(BaseSPI):
         del default_search_config['type']
         self.search_index = new_search_index_type(**default_search_config)
 
-#
-#
-# class BaseAsyncResourceAPI(BaseAPI):
-#     def __init__(self, code_name, resource_model, **kwargs):
-#         self.code_name = code_name
-#         self.resource_model = resource_model
-#         super(BaseAsyncResourceAPI, self).__init__(**kwargs)
-#
-#     @async
-#     def _trigger_hook(self, hook_name, method_name, **kwargs):
-#         hook = signal(hook_name)
-#         if bool(hook.receivers):
-#             kwargs['hook_name'] = hook_name
-#             kwargs['action'] = '{}_{}'.format(method_name, self.code_name)
-#             for receiver in hook.receivers_for(self):
-#                 yield receiver(self, **kwargs)
-#
-#     @async
-#     def new(self, **kwargs):
-#         result = yield self.resource_model(**kwargs)
-#         raise ndb.Return(result)
-#
-#     @async
-#     def _insert(self, resource_object, **kwargs):
-#         result = yield self._trigger_hook(hook_name='insert', method_name='insert', resource_object=resource_object, **kwargs)
-#         raise ndb.Return(result)
-#
-#     @async
-#     def insert(self, resource_object, **kwargs):
-#         """
-#         This is a little wrapper around the actual insert method. It provides asynchronous signalling. The signals can
-#         be used by other APIs to perform additional work.
-#
-#         If you want to skip all of that, or implement your own wrapper, you can simply override this method or call
-#         '_insert' directly.
-#
-#         The 'pre_insert' signal may raise exceptions to block the method from completing.
-#
-#         Neither the 'pre_insert' nor the 'post_insert' signals can return values, and they should generally not modify
-#         the values they are passed. While there is nothing to stop you modifying them, it can cause unexpected bugs.
-#
-#         :param resource_object:
-#         :param kwargs:
-#         :return:
-#         """
-#         yield self._trigger_hook(hook_name='pre_insert', method_name='insert', resource_object=resource_object, **kwargs)
-#         result = yield self._insert(resource_object=resource_object, **kwargs)
-#         yield self._trigger_hook(hook_name='post_insert', method_name='insert', resource_object=resource_object, result=result, **kwargs)
-#
-#         raise ndb.Return(result)
-#
-#     @async
-#     def _get(self, resource_uid, **kwargs):
-#         result = yield self._trigger_hook(hook_name='get', method_name='get', resource_uid=resource_uid, **kwargs)
-#         raise ndb.Return(result)
-#
-#     @async
-#     def get(self, resource_uid, **kwargs):
-#         """
-#         This is a little wrapper around the actual get method. It provides asynchronous signalling. The signals can
-#         be used by other APIs to perform additional work.
-#
-#         If you want to skip all of that, or implement your own wrapper, you can simply override this method or call
-#         '_get' directly.
-#
-#         The 'pre_get' signal may raise exceptions to block the method from completing.
-#
-#         Neither the 'pre_get' nor the 'post_get' signals can return values, and they should generally not modify the
-#         values they are passed. While there is nothing to stop you modifying them, it can cause unexpected bugs.
-#
-#         :param resource_uid:
-#         :param kwargs:
-#         :return:
-#         """
-#         yield self._trigger_hook(hook_name='pre_get', method_name='get', resource_uid=resource_uid, **kwargs)
-#         result = yield self._get(resource_uid=resource_uid, **kwargs)
-#         yield self._trigger_hook(hook_name='post_get', method_name='get', resource_uid=resource_uid, result=result, **kwargs)
-#
-#         raise ndb.Return(result)
-#
-#     @async
-#     def _update(self, resource_object, **kwargs):
-#         result = yield self._trigger_hook(hook_name='update', method_name='update', resource_object=resource_object, **kwargs)
-#         raise ndb.Return(result)
-#
-#     @async
-#     def update(self, resource_object, **kwargs):
-#         """
-#         This is a little wrapper around the actual update method. It provides asynchronous signalling. The signals can
-#         be used by other APIs to perform additional work.
-#
-#         If you want to skip all of that, or implement your own wrapper, you can simply override this method or call
-#         '_update' directly.
-#
-#         The 'pre_update' signal may raise exceptions to block the method from completing.
-#
-#         Neither the 'pre_update' nor the 'post_update' signals can return values, and they should generally not modify
-#         the values they are passed. While there is nothing to stop you modifying them, it can cause unexpected bugs.
-#
-#         :param resource_object:
-#         :param kwargs:
-#         :return:
-#         """
-#         yield self._trigger_hook(hook_name='pre_update', method_name='update', resource_object=resource_object, **kwargs)
-#         result = yield self._update(resource_object=resource_object, **kwargs)
-#         yield self._trigger_hook(hook_name='post_update', method_name='update', resource_object=resource_object, result=result, **kwargs)
-#
-#         raise ndb.Return(result)
-#
-#     @async
-#     def _patch(self, resource_uid, delta_update, **kwargs):
-#         result = yield self._trigger_hook(hook_name='patch', method_name='patch', resource_uid=resource_uid, delta_update=delta_update, **kwargs)
-#         raise ndb.Return(result)
-#
-#     @async
-#     def patch(self, resource_uid, delta_update, **kwargs):
-#         """
-#         This is a little wrapper around the actual patch method. It provides asynchronous signalling. The signals can
-#         be used by other APIs to perform additional work.
-#
-#         If you want to skip all of that, or implement your own wrapper, you can simply override this method or call
-#         '_patch' directly.
-#
-#         The 'pre_patch' signal may raise exceptions to block the method from completing.
-#
-#         Neither the 'pre_patch' nor the 'post_patch' signals can return values, and they should generally not modify the
-#         values they are passed. While there is nothing to stop you modifying them, it can cause unexpected bugs.
-#
-#         :param resource_uid:
-#         :param delta_update:
-#         :param kwargs:
-#         :return:
-#         """
-#         yield self._trigger_hook(hook_name='pre_patch', method_name='patch', resource_uid=resource_uid, delta_update=delta_update, **kwargs)
-#         result = yield self._patch(resource_uid=resource_uid, delta_update=delta_update, **kwargs)
-#         yield self._trigger_hook(hook_name='post_patch', method_name='patch', resource_uid=resource_uid, delta_update=delta_update, result=result, **kwargs)
-#
-#         raise ndb.Return(result)
-#
-#     @async
-#     def _delete(self, resource_uid, **kwargs):
-#         result = yield self._trigger_hook(hook_name='delete', method_name='delete', resource_uid=resource_uid, **kwargs)
-#         raise ndb.Return(result)
-#
-#     @async
-#     def delete(self, resource_uid, **kwargs):
-#         """
-#         This is a little wrapper around the actual delete method. It provides asynchronous signalling. The signals can
-#         be used by other APIs to perform additional work.
-#
-#         If you want to skip all of that, or implement your own wrapper, you can simply override this method or call
-#         '_delete' directly.
-#
-#         The 'pre_delete' signal may raise exceptions to block the method from completing.
-#
-#         Neither the 'pre_delete' nor the 'post_delete' signals can return values, and they should generally not modify the
-#         values they are passed. While there is nothing to stop you modifying them, it can cause unexpected bugs.
-#
-#         :param resource_uid:
-#         :param kwargs:
-#         :return:
-#         """
-#         yield self._trigger_hook(hook_name='pre_delete', method_name='delete', resource_uid=resource_uid, **kwargs)
-#         result = yield self._delete(resource_uid=resource_uid, **kwargs)
-#         yield self._trigger_hook(hook_name='post_delete', method_name='delete', resource_uid=resource_uid, result=result, **kwargs)
-#
-#         raise ndb.Return(result)
-#
-#     @async
-#     def _query(self, query_params, **kwargs):
-#         result = yield self._trigger_hook(hook_name='query', method_name='query', query_params=query_params, **kwargs)
-#         raise ndb.Return(result)
-#
-#     @async
-#     def query(self, query_params, **kwargs):
-#         """
-#         This is a little wrapper around the actual query method. It provides asynchronous signalling. The signals can
-#         be used by other APIs to perform additional work.
-#
-#         If you want to skip all of that, or implement your own wrapper, you can simply override this method or call
-#         '_query' directly.
-#
-#         The 'pre_query' signal may raise exceptions to block the method from completing.
-#
-#         Neither the 'pre_query' nor the 'post_query' signals can return values, and they should generally not modify the
-#         values they are passed. While there is nothing to stop you modifying them, it can cause unexpected bugs.
-#
-#         :param query_params:
-#         :param kwargs:
-#         :return:
-#         """
-#         yield self._trigger_hook(hook_name='pre_query', method_name='query', query_params=query_params, **kwargs)
-#         result = yield self._query(query_params=query_params, **kwargs)
-#         yield self._trigger_hook(hook_name='post_query', method_name='query', query_params=query_params, result=result, **kwargs)
-#
-#         raise ndb.Return(result)
-#
-#     @async
-#     def _search(self, query_string, **kwargs):
-#         result = yield self._trigger_hook(hook_name='search', method_name='search', query_string=query_string, **kwargs)
-#         raise ndb.Return(result)
-#
-#     @async
-#     def search(self, query_string, **kwargs):
-#         """
-#         This is a little wrapper around the actual search method. It provides asynchronous signalling. The signals can
-#         be used by other APIs to perform additional work.
-#
-#         If you want to skip all of that, or implement your own wrapper, you can simply override this method or call
-#         '_search' directly.
-#
-#         The 'pre_search' signal may raise exceptions to block the method from completing.
-#
-#         Neither the 'pre_search' nor the 'post_search' signals can return values, and they should generally not modify the
-#         values they are passed. While there is nothing to stop you modifying them, it can cause unexpected bugs.
-#
-#         :param query_string:
-#         :param kwargs:
-#         :return:
-#         """
-#         yield self._trigger_hook(hook_name='pre_search', method_name='search', query_string=query_string, **kwargs)
-#         result = yield self._search(query_string=query_string, **kwargs)
-#         yield self._trigger_hook(hook_name='post_search', method_name='search', query_string=query_string, result=result, **kwargs)
-#
-#         raise ndb.Return(result)
-#
-#
-# class GAEDatastoreAPIAsync(BaseAsyncResourceAPI):
-#     def __init__(self, datastore, **kwargs):
-#         super(GAEDatastoreAPIAsync, self).__init__(**kwargs)
-#         self.datastore = datastore
-#
-#     @async
-#     def _insert(self, resource_object, **kwargs):
-#         result = yield self.datastore.insert(resource_object=resource_object, **kwargs)
-#         raise ndb.Return(result)
-#
-#     @async
-#     def _get(self, resource_uid, **kwargs):
-#         result = yield self.datastore.get(resource_uid=resource_uid, **kwargs)
-#         raise ndb.Return(result)
-#
-#     @async
-#     def _update(self, resource_object, **kwargs):
-#         result = yield self.datastore.update(resource_object=resource_object, **kwargs)
-#         raise ndb.Return(result)
-#
-#     @async
-#     def _patch(self, resource_uid, delta_update, **kwargs):
-#         result = yield self.datastore.patch(resource_uid=resource_uid, delta_update=delta_update, **kwargs)
-#         raise ndb.Return(result)
-#
-#     @async
-#     def _delete(self, resource_uid, **kwargs):
-#         result = yield self.datastore.delete(resource_uid=resource_uid, **kwargs)
-#         raise ndb.Return(result)
-#
-#     @async
-#     def _query(self, query_params, **kwargs):
-#         result = yield self.datastore.query(query_params=query_params, **kwargs)
-#         raise ndb.Return(result)
-#
-#
-# class GAEAPI(GAEDatastoreAPIAsync):
-#     def __init__(self, search_index, **kwargs):
-#         super(GAEAPI, self).__init__(**kwargs)
-#         self.search_index = search_index
-#         self.search_update_queue = search_index.update_queue
-#
-#     @async
-#     def _insert(self, resource_object, **kwargs):
-#         resource_uid = yield super(GAEAPI, self)._insert(resource_object=resource_object, **kwargs)
-#         deferred.defer(self._update_search_index, resource_uid=resource_uid, _queue=self.search_update_queue)
-#         raise ndb.Return(resource_uid)
-#
-#     @async
-#     def _update(self, resource_object, **kwargs):
-#         resource_uid = yield super(GAEAPI, self)._update(resource_object=resource_object, **kwargs)
-#         deferred.defer(self._update_search_index, resource_uid=resource_uid, _queue=self.search_update_queue)
-#         raise ndb.Return(resource_uid)
-#
-#     @async
-#     def _patch(self, resource_uid, delta_update, **kwargs):
-#         resource_uid = yield super(GAEAPI, self)._patch(resource_uid=resource_uid, delta_update=delta_update, **kwargs)
-#         deferred.defer(self._update_search_index, resource_uid=resource_uid, _queue=self.search_update_queue)
-#         raise ndb.Return(resource_uid)
-#
-#     @async
-#     def _delete(self, resource_uid, **kwargs):
-#         result = yield super(GAEAPI, self)._delete(resource_uid=resource_uid, **kwargs)
-#         deferred.defer(self._delete_search_index, resource_uid=resource_uid, _queue=self.search_update_queue)
-#         raise ndb.Return(result)
-#
-#     @async
-#     def _search(self, query_string, **kwargs):
-#         # TODO: change this to use an underscore method?
-#         result = yield self.search_index.search(query_string=query_string, **kwargs)
-#         raise ndb.Return(result)
-#
-#     @sync
-#     def _update_search_index(self, resource_uid, **kwargs):
-#         resource = yield self.get(resource_uid=resource_uid)
-#         # TODO: change this to use an underscore method?
-#         result = yield self.search_index.insert(resource_object=resource, **kwargs)
-#         raise ndb.Return(result)
-#
-#     @sync
-#     def _delete_search_index(self, resource_uid, **kwargs):
-#         # TODO: change this to use an underscore method?
-#         result = yield self.search_index.delete(resource_object_uid=resource_uid, **kwargs)
-#         raise ndb.Return(result)
+
+class Security(AsyncResourceAPI):
+    def __init__(self, **kwargs):
+        # Init the inode and securityid apis. The default values will be ok here. We need to rely on the NDB datastore
+        # because of the implementation. It's ok if the resources themselves are kept elsewhere.
+
+        # TODO: for each op, take the resource uid. Should be string. Try to parse key. If fail then build one what we
+        # can use as a parent key in the datastore
+
+        # TODO: auto add receivers for the each of the base api methods that go to the authorize method
+
+        # TODO: auto add receivers for create and delete methods so that we can generate inodes for each resource. Do
+        # in transaction?
+
+        super(Security, self).__init__(**kwargs)
+
+    def chmod(self):
+        # Need to check that the user is authorized to perform this op
+        pass
+
+    def chflags(self):
+        # Need to check that the user is authorized to perform this op
+        pass
+
+    def authorize(self, identity_uid, resource_uid, action, **kwargs):
+        """
+        identity_uid will generally be the uid for a user, but it could also apply to other 'users' such as client
+        credentials in an OAuth2 authentication flow.
+
+        resource_uid is the uid of the resource that the action is to be performed on.
+
+        action is the name of the action that is to be performed on the resource. Might change this to permission.
+
+        :param identity_uid:
+        :param resource_uid:
+        :param action:
+        :return:
+        """
+        pass
+
 
 BASE_METHODS = ['insert', 'update', 'get', 'delete']
 NDB_METHODS = BASE_METHODS + ['query']
@@ -620,12 +370,33 @@ def init_api(api_name, api_def, parent=None, default_api=AsyncResourceAPI, defau
                      api_def=sub_api_def,
                      parent=new_api,
                      default_api=default_api)
+            new_api.children.append(sub_api_name)
 
     if parent:
         setattr(parent, api_name, new_api)
 
 
-def parse_api_config(api_definition, default_api=AsyncResourceAPI, default_methods=GAE_METHODS):
+def walk_the_api(api, api_map):
+    try:
+        api_map['methods'] = {}
+        for method in api.methods:
+            api_map['methods'][method] = {}
+            api_method = getattr(api, method)
+            api_map['methods'][method]['hooks'] = [api_method.pre_name, api_method.hook_name, api_method.post_name]
+            api_map['methods'][method]['action'] = api_method.action_name
+    except AttributeError:
+        pass
+
+    try:
+        api_map['children'] = {}
+        for child in api.children:
+            api_map['children'][child] = {}
+            walk_the_api(api=getattr(api, child), api_map=api_map['children'][child])
+    except AttributeError:
+        pass
+
+
+def parse_api_config(api_definition, default_api=AsyncResourceAPI, default_methods=GAE_METHODS, koala_security=True):
     api = API()
 
     for api_name, api_def in api_definition.iteritems():
@@ -634,6 +405,14 @@ def parse_api_config(api_definition, default_api=AsyncResourceAPI, default_metho
                  parent=api,
                  default_api=default_api,
                  default_methods=default_methods)
+        api.children.append(api_name)
+
+    if koala_security:
+        api_map = {}
+        walk_the_api(api=api, api_map=api_map)
+        api.map = api_map
+
+        init_api(api_name='security', api_def=SECURITY_API_CONFIG, parent=api, default_api=Security, default_methods=None)
 
     return api
 

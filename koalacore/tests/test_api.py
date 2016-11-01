@@ -23,45 +23,6 @@ __author__ = 'Matt Badger'
 # TODO: attache to all hooks and keep a count of the activations. They should match the number of methods x3. Easy way
 # to test that they have all been activated.
 
-class Security(BaseAPI):
-    def __init__(self, **kwargs):
-        # Init the inode and securityid apis. The default values will be ok here. We need to rely on the NDB datastore
-        # because of the implementation. It's ok if the resources themselves are kept elsewhere.
-
-        # TODO: for each op, take the resource uid. Should be string. Try to parse key. If fail then build one what we
-        # can use as a parent key in the datastore
-
-        # TODO: auto add receivers for the each of the base api methods that go to the authorize method
-
-        # TODO: auto add receivers for create and delete methods so that we can generate inodes for each resource. Do
-        # in transaction?
-
-        super(Security, self).__init__(**kwargs)
-
-    def chmod(self):
-        # Need to check that the user is authorized to perform this op
-        pass
-
-    def chflags(self):
-        # Need to check that the user is authorized to perform this op
-        pass
-
-    def authorize(self, identity_uid, resource_uid, action, **kwargs):
-        """
-        identity_uid will generally be the uid for a user, but it could also apply to other 'users' such as client
-        credentials in an OAuth2 authentication flow.
-
-        resource_uid is the uid of the resource that the action is to be performed on.
-
-        action is the name of the action that is to be performed on the resource. Might change this to permission.
-
-        :param identity_uid:
-        :param resource_uid:
-        :param action:
-        :return:
-        """
-        pass
-
 
 class INodeResource(Resource):
     # TODO: store owner (user), owner group(s) [list]
@@ -111,21 +72,7 @@ def get_uid_and_check_permissions(sender, identity_uid, resource_object, **kwarg
     yield check_permissions(sender=sender, identity_uid=identity_uid, resource_uid=resource_object.uid, **kwargs)
 
 
-SECURITY_API_CONFIG = {
-    'strict_parent': False,
-    'sub_apis': {
-        'inode': {
-            'strict_parent': False,
-        },
-        'identity': {
-            'strict_parent': False,
-        },
-    }
-}
-
-
 test_def = {
-    'security': SECURITY_API_CONFIG,
     'companies': {
         'strict_parent': False,
         'sub_apis': {
