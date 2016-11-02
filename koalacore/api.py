@@ -25,40 +25,6 @@ sync = ndb.synctasklet
 # TODO: it is possible that these methods will fail and thus their result will be None. Passing this in a signal may
 # cause other functions to throw exceptions. Check the return value before processing the post_ signals?
 
-# strict
-example_def = {
-    'companies': {
-        'type': 'GAEAPI',
-        'resource_model': 'model',
-        'strict_parent': False,
-        'datastore_config': {
-            'type': 'KoalaNDB',
-            'datastore_model': 'model',
-            'resource_model': 'model',
-        },
-        'search_config': {
-
-        },
-        'sub_apis': {
-            'users': {
-                'resource_model': 'model',
-                'strict_parent': True,
-                'datastore_config': {
-                    'type': 'KoalaNDB',
-                    'datastore_model': 'model',
-                    'resource_model': 'model',
-                },
-                'search_config': {
-
-                },
-                'sub_apis': {
-
-                },
-            }
-        },
-    }
-}
-
 
 SECURITY_API_CONFIG = {
     'sub_apis': {
@@ -175,7 +141,7 @@ class AsyncAPIMethod(object):
         API methods are very simple. They simply emit signal which you can receive and act upon. By default there are
         three signals: pre, execute, and post.
 
-        You can connect to them by specifying the sender as a given api method instance. Be careful though, if you
+        You can connect to them by specifying the sender as a parent api instance. Be careful though, if you
         don't specify a sender you will be acting upon *every* api method!
 
         :param kwargs:
@@ -236,7 +202,7 @@ class GAESPI(BaseSPI):
         default_datastore_config = {
             'type': DatastoreMock,
             'datastore_model': None,
-            'resource_model': None,
+            'resource_model': Resource,
             'unwanted_resource_kwargs': None,
         }
 
@@ -253,7 +219,6 @@ class GAESPI(BaseSPI):
         default_search_config = {
             'type': SearchMock,
             'update_queue': 'search-index-update',
-            'search_document_model': None,
             'index_name': None,
             'result': None,
             'search_result': None,
@@ -315,8 +280,8 @@ class Security(AsyncResourceAPI):
 
     @async
     def get_uid_and_check_permissions(self, sender, identity_uid, resource_object=None, resource_uid=None, **kwargs):
-        if resource_object is None and resource_uid is None:
-            raise ValueError('You must supply a resource object or a resource uid to the authorize method')
+        if resource_object is not None and resource_uid is not None:
+            raise ValueError('You must supply either a resource object or a resource uid')
 
         if resource_object:
             if not resource_object.uid:

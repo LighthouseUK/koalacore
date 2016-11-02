@@ -731,6 +731,314 @@ else:
                     raise ndb.Return("'%s' was called" % name)
                 raise AttributeError("%r object has no attribute %r" % (self.__class__, name))
 
+
+        class ModelUtils(object):
+            def to_dict(self):
+                result = super(ModelUtils, self).to_dict()
+                try:
+                    result['uid'] = self.key.urlsafe()
+                except AttributeError:
+                    # The datastore model has no key attribute, likely because it is a new instance and has not been
+                    # inserted into the datastore yet.
+                    pass
+
+                return result
+
+
+        class NDBResource(ModelUtils, ndb.Expando):
+            created = ndb.DateTimeProperty('ndbrc', auto_now_add=True, indexed=False)
+            updated = ndb.DateTimeProperty('ndbru', auto_now=True, indexed=False)
+
+
+        class NDBUniqueValueModel(ndb.Expando):
+            """A model to store unique values.
+
+            The only purpose of this model is to "reserve" values that must be unique
+            within a given scope, as a workaround because datastore doesn't support
+            the concept of uniqueness for entity properties.
+
+            For example, suppose we have a model `User` with three properties that
+            must be unique across a given group: `username`, `auth_id` and `email`::
+
+                class User(model.Model):
+                    username = model.StringProperty(required=True)
+                    auth_id = model.StringProperty(required=True)
+                    email = model.StringProperty(required=True)
+
+            To ensure property uniqueness when creating a new `User`, we first create
+            `Unique` records for those properties, and if everything goes well we can
+            save the new `User` record::
+
+                @classmethod
+                def create_user(cls, username, auth_id, email):
+                    # Assemble the unique values for a given class and attribute scope.
+                    uniques = [
+                        'User.username.%s' % username,
+                        'User.auth_id.%s' % auth_id,
+                        'User.email.%s' % email,
+                    ]
+
+                    # Create the unique username, auth_id and email.
+                    success, existing = Unique.create_multi(uniques)
+
+                    if success:
+                        # The unique values were created, so we can save the user.
+                        user = User(username=username, auth_id=auth_id, email=email)
+                        user.put()
+                        return user
+                    else:
+                        # At least one of the values is not unique.
+                        # Make a list of the property names that failed.
+                        props = [name.split('.', 2)[1] for name in uniques]
+                        raise ValueError('Properties %r are not unique.' % props)
+
+            Based on the idea from http://goo.gl/pBQhB
+
+            :copyright: 2011 by tipfy.org.
+            :license: Apache Sotware License
+            """
+
+            @classmethod
+            def create(cls, value):
+                """Creates a new unique value.
+
+                :param value:
+                    The value to be unique, as a string.
+
+                    The value should include the scope in which the value must be
+                    unique (ancestor, namespace, kind and/or property name).
+
+                    For example, for a unique property `email` from kind `User`, the
+                    value can be `User.email:me@myself.com`. In this case `User.email`
+                    is the scope, and `me@myself.com` is the value to be unique.
+                :returns:
+                    True if the unique value was created, False otherwise.
+                """
+                entity = cls(key=ndb.Key(cls, value))
+                txn = lambda: entity.put() if not entity.key.get() else None
+                return ndb.transaction(txn) is not None
+
+            @classmethod
+            def create_multi(cls, values):
+                """Creates multiple unique values at once.
+
+                :param values:
+                    A sequence of values to be unique. See :meth:`create`.
+                :returns:
+                    A tuple (bool, list_of_keys). If all values were created, bool is
+                    True and list_of_keys is empty. If one or more values weren't
+                    created, bool is False and the list contains all the values that
+                    already existed in datastore during the creation attempt.
+                """
+                # Maybe do a preliminary check, before going for transactions?
+                # entities = model.get_multi(keys)
+                # existing = [entity.key.id() for entity in entities if entity]
+                # if existing:
+                #    return False, existing
+
+                # Create all records transactionally.
+                keys = [ndb.Key(cls, value) for value in values]
+                entities = [cls(key=key) for key in keys]
+                func = lambda e: e.put() if not e.key.get() else None
+                created = [ndb.transaction(lambda: func(e)) for e in entities]
+
+                if created != keys:
+                    # A poor man's "rollback": delete all recently created records.
+                    ndb.delete_multi(k for k in created if k)
+                    return False, [k.id() for k in keys if k not in created]
+
+                return True, []
+
+            @classmethod
+            def delete_multi(cls, values):
+                """Deletes multiple unique values at once.
+
+                :param values:
+                    A sequence of values to be deleted.
+                """
+                return ndb.delete_multi(ndb.Key(cls, v) for v in values)
+
+
+        class NDBUniques(object):
+            @classmethod
+            def create(cls, data_type, unique_name, unique_value):
+                unique = '%s.%s:%s' % (data_type, unique_name, unique_value)
+
+                return NDBUniqueValueModel.create(unique)
+
+            @classmethod
+            def create_multi(cls, data_type, unique_name_value_tuples):
+                uniques = []
+                for kv_pair in unique_name_value_tuples:
+                    key = '%s.%s:%s' % (data_type, kv_pair[0], kv_pair[1])
+                    uniques.append((key, kv_pair[1]))
+
+                ok, existing = NDBUniqueValueModel.create_multi(k for k, v in uniques)
+                if ok:
+                    return True, None
+                else:
+                    properties = [v for k, v in uniques if k in existing]
+                    return False, properties
+
+            @classmethod
+            def delete_multi(cls, data_type, unique_name_value_tuples):
+                uniques = []
+                for kv_pair in unique_name_value_tuples:
+                    key = '%s.%s:%s' % (data_type, kv_pair[0], kv_pair[1])
+                    uniques.append((key, kv_pair[1]))
+
+                return NDBUniqueValueModel.delete_multi(k for k, v in uniques)
+
+
+        class NDBMethod(object):
+            def __init__(self, code_name, resource_model, uniques_value_model=NDBUniqueValueModel, force_unique_parse=False):
+                self.code_name = code_name
+                self.resource_model = resource_model
+                self.uniques_value_model = uniques_value_model
+                self.force_unique_parse = force_unique_parse
+
+                self.pre_name = 'pre_{}'.format(self.code_name)
+                self.post_name = 'post_{}'.format(self.code_name)
+
+                self.pre_signal = signal(self.pre_name)
+                self.post_signal = signal(self.post_name)
+
+            def _transaction_receivers(self):
+                return bool(self.pre_signal.receivers) or bool(self.post_signal.recievers)
+
+            @async
+            def _trigger_hook(self, signal, **kwargs):
+                if bool(signal.receivers):
+                    kwargs['hook_name'] = signal.name
+                    for receiver in signal.receivers_for(self):
+                        yield receiver(self, **kwargs)
+
+            def _parse_resource_unique_values(self, resource):
+                """
+                Compile unique value name pairs from a resource object
+
+                :param resource:
+                :param force:
+                :return:
+                """
+                if not resource._uniques:
+                    return None, None
+
+                uniques = {}
+                old_values = {}
+                for unique in resource._uniques:
+                    if unique in resource._uniques_modified or self.force_unique_parse:
+                        value = getattr(resource, unique)
+                        if value:
+                            uniques[unique] = value
+                            try:
+                                old_values[unique] = resource._history[unique][0]
+                            except KeyError:
+                                # There is no old value
+                                pass
+
+                return self._build_unique_value_keys(uniques=uniques), old_values if uniques else None, None
+
+            def _build_unique_value_keys(self, uniques):
+                """
+                Generate unique datastore keys for each property=>value pair in uniques. Return as list of strings
+
+                :param uniques:
+                :return unique_keys:
+                """
+                base_unique_key = u'{}.'.format(self.resource_model.__name__)
+
+                return [u'{}{}.{}'.format(base_unique_key, unique, value) for unique, value in uniques.iteritems()]
+
+            @async
+            def _create_unique_locks(self, uniques):
+                """
+                Create unique locks from a dict of property=>value pairs
+
+                :param uniques:
+                :return:
+                """
+
+                if uniques:
+                    result, errors = yield self.uniques_value_model.create_multi(uniques)
+
+                    if not result:
+                        raise UniqueValueRequired(errors=[name.split('.', 2)[1] for name in errors])
+
+            @async
+            def _delete_unique_locks(self, uniques):
+                """
+                Delete unique locks from a dict of property=>value pairs
+
+                :param uniques:
+                :return:
+                """
+                if uniques:
+                    yield self.uniques_value_model.delete_multi(uniques)
+
+            @async
+            def _internal_op(self, **kwargs):
+                raise NotImplementedError
+
+            @async
+            def __call__(self, **kwargs):
+                """
+                API methods are very simple. They simply emit signal which you can receive and act upon. By default there are
+                three signals: pre, execute, and post.
+
+                :param kwargs:
+                :return:
+                """
+                try:
+                    uniques, old_uniques = self._parse_resource_unique_values(resource=kwargs['resource'])
+                except KeyError:
+                    uniques = None
+                    old_uniques = None
+
+                if self._transaction_receivers() or uniques:
+                    result = yield ndb.transaction_async(lambda: self._internal_op(uniques=uniques,
+                                                                                   old_uniques=old_uniques,
+                                                                                   **kwargs))
+                else:
+                    result = yield self._internal_op(**kwargs)
+
+                raise ndb.Return(result)
+
+
+        class NDBInsert(NDBMethod):
+            def __init__(self, **kwargs):
+                kwargs['code_name'] = 'insert'
+                kwargs['force_unique_parse'] = True
+                super(NDBInsert, self).__init__(**kwargs)
+
+            def _internal_op(self, datastore_model, uniques, **kwargs):
+                """
+                Insert model into the ndb datastore. Everything in here should be able to be executed within an NDB
+                transaction -- there should be no processing except for the NDB ops. This applies to any connected
+                receivers of the transaction signals as well -- they should either be performing a datastore op or
+                enqueueing a transactional task.
+
+                uniques will either be a list of ndb keys or None
+
+                :param datastore_model:
+                :param uniques:
+                :param kwargs:
+                :returns future (key for the inserted entity):
+                """
+                kwargs['datastore_model'] = datastore_model
+                yield self._trigger_hook(signal=self.pre_signal, **kwargs)
+
+                # This might raise an exception, but it doesn't return a value. If uniques are supplied then we are
+                # automatically in a transaction
+                if uniques:
+                    yield self._create_unique_locks(uniques=uniques)
+
+                result = yield datastore_model.put_async(**kwargs)
+
+                yield self._trigger_hook(signal=self.post_signal, op_result=result, **kwargs)
+
+                raise ndb.Return(result)
+
         class KoalaNDB(EventedDatastoreInterface):
             """
             NDB Evented Datastore Interface. Implements the base datastore methods above and adds in some additional
@@ -866,6 +1174,20 @@ else:
                     return target
                 else:
                     return False
+
+            @async
+            def _internal_example(self, **kwargs):
+                pass
+
+            @async
+            def example(self, **kwargs):
+                pre_op_hook = signal('pre_op')
+                post_op_hook = signal('post_op')
+                if bool(pre_op_hook.receivers) or bool(post_op_hook.receivers):
+                    result = yield ndb.transaction_async(lambda: self._internal_example(**kwargs))
+                else:
+                    result = yield self._internal_example(**kwargs)
+                raise ndb.Return(result)
 
             def _internal_insert(self, datastore_model, **kwargs):
                 """
@@ -1210,161 +1532,3 @@ else:
 
             def _transaction_log(self):
                 pass
-
-
-        class ModelUtils(object):
-            def to_dict(self):
-                result = super(ModelUtils, self).to_dict()
-                try:
-                    result['uid'] = self.key.urlsafe()
-                except AttributeError:
-                    # The datastore model has no key attribute, likely because it is a new instance and has not been
-                    # inserted into the datastore yet.
-                    pass
-
-                return result
-
-
-        class NDBResource(ModelUtils, ndb.Expando):
-            created = ndb.DateTimeProperty('ndbrc', auto_now_add=True, indexed=False)
-            updated = ndb.DateTimeProperty('ndbru', auto_now=True, indexed=False)
-
-
-        class NDBUniqueValueModel(ndb.Expando):
-            """A model to store unique values.
-
-            The only purpose of this model is to "reserve" values that must be unique
-            within a given scope, as a workaround because datastore doesn't support
-            the concept of uniqueness for entity properties.
-
-            For example, suppose we have a model `User` with three properties that
-            must be unique across a given group: `username`, `auth_id` and `email`::
-
-                class User(model.Model):
-                    username = model.StringProperty(required=True)
-                    auth_id = model.StringProperty(required=True)
-                    email = model.StringProperty(required=True)
-
-            To ensure property uniqueness when creating a new `User`, we first create
-            `Unique` records for those properties, and if everything goes well we can
-            save the new `User` record::
-
-                @classmethod
-                def create_user(cls, username, auth_id, email):
-                    # Assemble the unique values for a given class and attribute scope.
-                    uniques = [
-                        'User.username.%s' % username,
-                        'User.auth_id.%s' % auth_id,
-                        'User.email.%s' % email,
-                    ]
-
-                    # Create the unique username, auth_id and email.
-                    success, existing = Unique.create_multi(uniques)
-
-                    if success:
-                        # The unique values were created, so we can save the user.
-                        user = User(username=username, auth_id=auth_id, email=email)
-                        user.put()
-                        return user
-                    else:
-                        # At least one of the values is not unique.
-                        # Make a list of the property names that failed.
-                        props = [name.split('.', 2)[1] for name in uniques]
-                        raise ValueError('Properties %r are not unique.' % props)
-
-            Based on the idea from http://goo.gl/pBQhB
-
-            :copyright: 2011 by tipfy.org.
-            :license: Apache Sotware License
-            """
-
-            @classmethod
-            def create(cls, value):
-                """Creates a new unique value.
-
-                :param value:
-                    The value to be unique, as a string.
-
-                    The value should include the scope in which the value must be
-                    unique (ancestor, namespace, kind and/or property name).
-
-                    For example, for a unique property `email` from kind `User`, the
-                    value can be `User.email:me@myself.com`. In this case `User.email`
-                    is the scope, and `me@myself.com` is the value to be unique.
-                :returns:
-                    True if the unique value was created, False otherwise.
-                """
-                entity = cls(key=ndb.Key(cls, value))
-                txn = lambda: entity.put() if not entity.key.get() else None
-                return ndb.transaction(txn) is not None
-
-            @classmethod
-            def create_multi(cls, values):
-                """Creates multiple unique values at once.
-
-                :param values:
-                    A sequence of values to be unique. See :meth:`create`.
-                :returns:
-                    A tuple (bool, list_of_keys). If all values were created, bool is
-                    True and list_of_keys is empty. If one or more values weren't
-                    created, bool is False and the list contains all the values that
-                    already existed in datastore during the creation attempt.
-                """
-                # Maybe do a preliminary check, before going for transactions?
-                # entities = model.get_multi(keys)
-                # existing = [entity.key.id() for entity in entities if entity]
-                # if existing:
-                #    return False, existing
-
-                # Create all records transactionally.
-                keys = [ndb.Key(cls, value) for value in values]
-                entities = [cls(key=key) for key in keys]
-                func = lambda e: e.put() if not e.key.get() else None
-                created = [ndb.transaction(lambda: func(e)) for e in entities]
-
-                if created != keys:
-                    # A poor man's "rollback": delete all recently created records.
-                    ndb.delete_multi(k for k in created if k)
-                    return False, [k.id() for k in keys if k not in created]
-
-                return True, []
-
-            @classmethod
-            def delete_multi(cls, values):
-                """Deletes multiple unique values at once.
-
-                :param values:
-                    A sequence of values to be deleted.
-                """
-                return ndb.delete_multi(ndb.Key(cls, v) for v in values)
-
-
-        class NDBUniques(object):
-            @classmethod
-            def create(cls, data_type, unique_name, unique_value):
-                unique = '%s.%s:%s' % (data_type, unique_name, unique_value)
-
-                return NDBUniqueValueModel.create(unique)
-
-            @classmethod
-            def create_multi(cls, data_type, unique_name_value_tuples):
-                uniques = []
-                for kv_pair in unique_name_value_tuples:
-                    key = '%s.%s:%s' % (data_type, kv_pair[0], kv_pair[1])
-                    uniques.append((key, kv_pair[1]))
-
-                ok, existing = NDBUniqueValueModel.create_multi(k for k, v in uniques)
-                if ok:
-                    return True, None
-                else:
-                    properties = [v for k, v in uniques if k in existing]
-                    return False, properties
-
-            @classmethod
-            def delete_multi(cls, data_type, unique_name_value_tuples):
-                uniques = []
-                for kv_pair in unique_name_value_tuples:
-                    key = '%s.%s:%s' % (data_type, kv_pair[0], kv_pair[1])
-                    uniques.append((key, kv_pair[1]))
-
-                return NDBUniqueValueModel.delete_multi(k for k, v in uniques)
