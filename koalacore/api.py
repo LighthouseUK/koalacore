@@ -201,7 +201,6 @@ class GAESPI(BaseSPI):
     def __init__(self, datastore_config=None, search_config=None):
         default_datastore_config = {
             'type': DatastoreMock,
-            'datastore_model': None,
             'resource_model': Resource,
             'unwanted_resource_kwargs': None,
         }
