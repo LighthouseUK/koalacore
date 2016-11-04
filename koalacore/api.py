@@ -722,6 +722,7 @@ class BaseResource(object):
     If a property is required then make sure that you check it during init and throw an exception.
 
     """
+    # TODO: add a method to apply delta update. This can be used by forms etc as well
 
     __metaclass__ = MetaModel
 

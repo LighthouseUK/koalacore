@@ -29,7 +29,7 @@ if STATICA_HACK:  # pragma: no cover
     from koalacore.search import GAESearchInterface, Result, KoalaSearchInterface  # noga
     from koalacore.rbac import PermissionDenied, PermissionsStorage, RBAC  # noga
     from koalacore.privileges import Privilege, PrivilegeConstants, SecurityObject, AugmentedPrivilegeEvaluator, AugmentedSecurityObject, authorise, UnauthorisedCredentials, mock_credentials  # noqa
-    from koalacore.datastore import KoalaNDB, NDBUniques, ModelUtils, NDBResource, ResourceNotFound, ResourceException, UniqueValueRequired  # noqa
+    from koalacore.datastore import NDBDatastore, NDBUniques, NDBModelUtils, NDBResource, ResourceNotFound, ResourceException, UniqueValueRequired  # noqa
     from koalacore.security import generate_password_hash, generate_random_string, check_password_hash  # noqa
     from koalacore.exceptions import KoalaException, InvalidUser, UnauthorisedUser  # noqa
     from koalacore.validators import URIValidator, ConditionalURIValidator  # noqa
