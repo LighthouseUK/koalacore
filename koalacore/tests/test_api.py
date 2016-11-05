@@ -9,8 +9,9 @@
 """
 import unittest
 from blinker import signal
-from koalacore.api import parse_api_config, BaseAPI, Resource
-from koalacore.datastore import DatastoreMock, Resource, StringProperty
+from koalacore.api import parse_api_config
+from koalacore.resource import Resource, StringProperty
+from koalacore.datastore import DatastoreMock
 from koalacore.search import SearchMock
 from google.appengine.ext import testbed
 from google.appengine.ext import deferred
