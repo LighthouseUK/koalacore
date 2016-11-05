@@ -24,6 +24,9 @@ from .exceptions import KoalaException
 __author__ = 'Matt Badger'
 
 
+async = ndb.tasklet
+
+
 class ResourceNotFound(KoalaException):
     """
     Raised when a datastore method that requires a resource cannot find said resource. Usually because the supplied uid
@@ -307,8 +310,8 @@ class StringProperty(TextProperty):
     _attributes = ResourceProperty._attributes + ['_strip', '_lower']
 
     @ndb.utils.positional(1 + ResourceProperty._positional)  # Add 1 for self.
-    def __init__(self, strip_whitespace=True, force_lowercase=False, **kwargs):
-        super(ResourceProperty, self).__init__(**kwargs)
+    def __init__(self, name=None, strip_whitespace=True, force_lowercase=False, **kwargs):
+        super(StringProperty, self).__init__(name=name, **kwargs)
         self._strip = strip_whitespace
         self._lower = force_lowercase
 
@@ -1274,25 +1277,46 @@ class Resource(ndb.Expando):
 
     @classmethod
     def _fix_up_properties(cls):
-        """Most of the work is done in super. Here we simply wrap the super method and provide some additional
-        functionality to setup the unique value checking within a resource
+        """Fix up the properties by calling their _fix_up() method.
 
         Note: This is called by MetaModel, but may also be called manually
         after dynamically updating a model class.
         """
-        super(Resource, cls)._fix_up_properties()
-        cls._uniques = []  # Map of {name: Property}
-
+        # Verify that _get_kind() returns an 8-bit string.
+        kind = cls._get_kind()
+        if not isinstance(kind, basestring):
+            raise ndb.KindError('Class %s defines a _get_kind() method that returns '
+                            'a non-string (%r)' % (cls.__name__, kind))
+        if not isinstance(kind, str):
+            try:
+                kind = kind.encode('ascii')  # ASCII contents is okay.
+            except UnicodeEncodeError:
+                raise ndb.KindError('Class %s defines a _get_kind() method that returns '
+                                'a Unicode string (%r); please encode using utf-8' %
+                                (cls.__name__, kind))
+        cls._properties = {}  # Map of {name: Property}
         if cls.__module__ == __name__:  # Skip the classes in *this* file.
             return
         for name in set(dir(cls)):
             attr = getattr(cls, name, None)
-            if isinstance(attr, ResourceProperty):
-                try:
-                    if attr._unique:
-                        cls._uniques.append(attr._name)
-                except AttributeError:
-                    pass
+            if isinstance(attr, ndb.ModelAttribute) and not isinstance(attr, ndb.ModelKey):
+                if name.startswith('_'):
+                    raise TypeError('ModelAttribute %s cannot begin with an underscore '
+                                    'character. _ prefixed attributes are reserved for '
+                                    'temporary Model instance values.' % name)
+                attr._fix_up(cls, name)
+                if isinstance(attr, ResourceProperty):
+                    if (attr._repeated or
+                            (isinstance(attr, StructuredProperty) and
+                                 attr._modelclass._has_repeated)):
+                        cls._has_repeated = True
+                    cls._properties[attr._name] = attr
+                    try:
+                        if attr._unique:
+                            cls._uniques.append(attr._name)
+                    except AttributeError:
+                        pass
+        cls._update_kind_map()
         
     @property
     def uid(self):

@@ -10,7 +10,7 @@
 import unittest
 from blinker import signal
 from koalacore.api import parse_api_config, BaseAPI, Resource
-from koalacore.datastore import DatastoreMock, NDBResource
+from koalacore.datastore import DatastoreMock, Resource, StringProperty
 from koalacore.search import SearchMock
 from google.appengine.ext import testbed
 from google.appengine.ext import deferred
@@ -25,6 +25,7 @@ __author__ = 'Matt Badger'
 
 
 class INodeResource(Resource):
+    file_name = StringProperty('fn', verbose_name='File Name')
     # TODO: store owner (user), owner group(s) [list]
     # TODO: store permissions for owner, group, global
     # TODO: store additional ACL rules
@@ -34,8 +35,8 @@ class INodeResource(Resource):
     pass
 
 
-class INode(NDBResource):
-    pass
+class INode(Resource):
+    file_name = StringProperty('fn', verbose_name='File Name', unique=True, strip_whitespace=True, force_lowercase=True)
 
 
 class IdentityResource(Resource):
@@ -48,7 +49,7 @@ class IdentityResource(Resource):
     pass
 
 
-class Identity(NDBResource):
+class Identity(Resource):
     pass
 
 
@@ -120,6 +121,24 @@ class AsyncSignalTester(object):
             }
 
         self.hook_activations_count += 1
+
+
+class TestResource(unittest.TestCase):
+    def setUp(self):
+        self.testbed = testbed.Testbed()
+        self.testbed.activate()
+        self.testbed.init_datastore_v3_stub()
+        self.testbed.init_memcache_stub()
+        self.testbed.init_search_stub()
+        self.testbed.init_taskqueue_stub(root_path='./koalacore/tests')
+        self.task_queue = self.testbed.get_stub(testbed.TASKQUEUE_SERVICE_NAME)
+
+    def tearDown(self):
+        self.testbed.deactivate()
+
+    def test_resource_init(self):
+        test = INode(file_name='examplefilename')
+        pass
 
 
 class TestAPIConfigParserDefaults(unittest.TestCase):

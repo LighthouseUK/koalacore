@@ -29,7 +29,7 @@ if STATICA_HACK:  # pragma: no cover
     from koalacore.search import GAESearchInterface, Result, KoalaSearchInterface  # noga
     from koalacore.rbac import PermissionDenied, PermissionsStorage, RBAC  # noga
     from koalacore.privileges import Privilege, PrivilegeConstants, SecurityObject, AugmentedPrivilegeEvaluator, AugmentedSecurityObject, authorise, UnauthorisedCredentials, mock_credentials  # noqa
-    from koalacore.datastore import NDBDatastore, NDBUniques, NDBModelUtils, NDBResource, ResourceNotFound, ResourceException, UniqueValueRequired  # noqa
+    from koalacore.datastore import NDBDatastore, Resource, ResourceNotFound, ResourceException, UniqueValueRequired  # noqa
     from koalacore.security import generate_password_hash, generate_random_string, check_password_hash  # noqa
     from koalacore.exceptions import KoalaException, InvalidUser, UnauthorisedUser  # noqa
     from koalacore.validators import URIValidator, ConditionalURIValidator  # noqa
@@ -44,7 +44,7 @@ all_by_module = {
     '{}.privileges'.format(PACKAGE_NAME): ['Privilege', 'PrivilegeConstants', 'SecurityObject',
                                            'AugmentedPrivilegeEvaluator', 'AugmentedSecurityObject', 'authorise',
                                            'UnauthorisedCredentials', 'mock_credentials'],
-    '{}.datastore'.format(PACKAGE_NAME): ['NDBEventedInterface', 'NDBUniques', 'ModelUtils', 'NDBResource', 'ResourceNotFound', 'ResourceException', 'UniqueValueRequired'],
+    '{}.datastore'.format(PACKAGE_NAME): ['NDBEventedInterface', 'Resource', 'ResourceNotFound', 'ResourceException', 'UniqueValueRequired'],
     '{}.security'.format(PACKAGE_NAME): ['generate_password_hash', 'generate_random_string', 'check_password_hash'],
     '{}.exceptions'.format(PACKAGE_NAME): ['KoalaException', 'ResourceException', 'UniqueValueRequired', 'InvalidUser', 'UnauthorisedUser'],
     '{}.validators'.format(PACKAGE_NAME): ['URIValidator', 'ConditionalURIValidator'],
