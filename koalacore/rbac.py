@@ -1,7 +1,22 @@
 # -*- coding: utf-8 -*-
 """
-    koalarbac.__init__.py
+    koalacore.rbac
     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+    Copyright 2016 Lighthouse
+
+    Licensed under the Apache License, Version 2.0 (the "License");
+    you may not use this file except in compliance with the License.
+    You may obtain a copy of the License at
+
+        http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the License is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the License for the specific language governing permissions and
+    limitations under the License.
+
     Simple rbac setup. Accepts a 'user' object which contains a 'permissions' property. The permissions property
     should be an object with 'roles', and 'acl' properties. Roles is a set of strings which are the role code names.
     ACL is a dict of sets. The dict keys should be a resource_uid and the set values should be a list of allowed
@@ -19,9 +34,6 @@
 
     User roles are not hierarchical - if you want an admin role to be able to do everything that normal users can,
     you need to grant multiple roles to the user
-
-    :copyright: (c) 2015 Lighthouse
-    :license: LGPL
 """
 
 import logging
