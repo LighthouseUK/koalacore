@@ -993,8 +993,12 @@ class UserProperty(ResourceProperty):
         return _unpack_user(v)
 
 
-class KeyProperty(ResourceProperty):
-    """This is exactly the same implementation as the NDB SDK, we just need to inherit from a different base class."""
+class ResourceUIDProperty(ResourceProperty):
+    """
+    This is almost exactly the same implementation as the KeyProperty in the NDB SDK, we just need to inherit from a
+    different base class, and modify the accepted/return values. The rest of the functionality is the same -- the stored
+    value is an NDB key instance(s)
+    """
 
     _attributes = ResourceProperty._attributes + ['_kind']
 
@@ -1042,7 +1046,7 @@ class KeyProperty(ResourceProperty):
             if not isinstance(kind, str):
                 raise TypeError('kind must be a Model class or a string')
 
-        super(KeyProperty, self).__init__(name, **kwds)
+        super(ResourceUIDProperty, self).__init__(name, **kwds)
 
         self._kind = kind
 
@@ -1099,7 +1103,7 @@ class KeyProperty(ResourceProperty):
         """
         Converts the returned value into ResourceUID instances
         """
-        return self._convert_to_resource_uids(raw=super(KeyProperty, self)._get_for_dict(entity=entity))
+        return self._convert_to_resource_uids(raw=super(ResourceUIDProperty, self)._get_for_dict(entity=entity))
 
     def __get__(self, entity, unused_cls=None):
         """Descriptor protocol: get the value from the entity."""
