@@ -244,7 +244,7 @@ class TestAPIConfigParserDefaults(unittest.TestCase):
         signal('insert').connect(signal_tester_2.hook_subscriber, sender=test_api.companies.insert)
         signal('post_insert').connect(signal_tester_1.hook_subscriber, sender=test_api.companies.insert)
         signal('post_insert').connect(signal_tester_2.hook_subscriber, sender=test_api.companies.insert)
-        result_future = test_api.companies.insert(resource_object=IdentityResource(uid='testresourceuid'), identity_uid='thisisatestidentitykey')
+        result_future = test_api.companies.insert(resource_object=IdentityResource(id='testresourceuid'), identity_uid='thisisatestidentitykey')
         result = result_future.get_result()
 
         self.assertEqual(signal_tester_1.hook_activations_count, 3, u'insert should trigger 3 hooks')
@@ -266,7 +266,7 @@ class TestAPIConfigParserDefaults(unittest.TestCase):
         signal('update').connect(signal_tester_2.hook_subscriber, sender=test_api.companies.update)
         signal('post_update').connect(signal_tester_1.hook_subscriber, sender=test_api.companies.update)
         signal('post_update').connect(signal_tester_2.hook_subscriber, sender=test_api.companies.update)
-        result_future = test_api.companies.update(resource_object=IdentityResource(uid='testresourceuid'), identity_uid='thisisatestidentitykey')
+        result_future = test_api.companies.update(resource_object=IdentityResource(id='testresourceuid'), identity_uid='thisisatestidentitykey')
         result = result_future.get_result()
 
         self.assertEqual(signal_tester_1.hook_activations_count, 3, u'update should trigger 3 hooks')

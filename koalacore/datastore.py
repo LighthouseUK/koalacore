@@ -64,7 +64,7 @@ class DatastoreMock(object):
     def __init__(self, methods, resource_model, *args, **kwargs):
         # TODO: accept list of method names and generate them
         for method in methods:
-            setattr(self, method, NDBMethod(code_name=method, resource_model=resource_model))
+            setattr(self, method, NDBMethod(code_name=method, resource_name=resource_model))
 
     def __getattr__(self, name):
         if not name.startswith('__') and not name.endswith('__'):
@@ -84,9 +84,9 @@ class UniqueValue(ndb.Model):
 
 
 class NDBMethod(object):
-    def __init__(self, code_name, resource_model, uniques_value_model=UniqueValue, force_unique_parse=False):
+    def __init__(self, code_name, resource_name, uniques_value_model=UniqueValue, force_unique_parse=False):
         self.code_name = code_name
-        self.resource_model = resource_model
+        self.resource_name = resource_name
         self.uniques_value_model = uniques_value_model
         self.force_unique_parse = force_unique_parse
 
@@ -114,7 +114,7 @@ class NDBMethod(object):
         :param uniques:
         :return unique_locks:
         """
-        base_unique_key = u'{}.'.format(self.resource_model.__name__)
+        base_unique_key = u'{}.'.format(self.resource_name)
 
         return [ndb.Key(self.uniques_value_model, u'{}{}.{}'.format(base_unique_key, unique, value)) for unique, value in uniques.iteritems()]
 
@@ -389,10 +389,12 @@ class NDBDatastore(object):
 
         self._unwanted_resource_kwargs = default_unwanted_kwargs
 
-        self.insert = NDBInsert(resource_model=resource_model)
-        self.get = NDBGet(resource_model=resource_model)
-        self.update = NDBUpdate(resource_model=resource_model)
-        self.delete = NDBDelete(resource_model=resource_model)
+        resource_name = resource_model.__name__
+
+        self.insert = NDBInsert(resource_name=resource_name)
+        self.get = NDBGet(resource_name=resource_name)
+        self.update = NDBUpdate(resource_name=resource_name)
+        self.delete = NDBDelete(resource_name=resource_name)
 
     def build_resource_uid(self, desired_id, parent=None, namespace=None, urlsafe=True):
         # TODO: change this to use self.resource_model instead of self.datastore_model.
