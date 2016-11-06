@@ -19,6 +19,9 @@
 """
 import logging
 import google.appengine.ext.ndb as ndb
+from .resource import ResourceUIDProperty, StringProperty, TextProperty, BlobKeyProperty, IntegerProperty, \
+    FloatProperty, DateProperty, DateTimeProperty, BooleanProperty, TimeProperty, GenericProperty, GeoPtProperty, \
+    UserProperty, StructuredProperty, LocalStructuredProperty, JsonProperty, PickleProperty, ComputedProperty
 
 __author__ = 'Matt Badger'
 
@@ -31,6 +34,93 @@ class SearchMock(object):
         if not name.startswith('__') and not name.endswith('__'):
             raise ndb.Return("'%s' was called" % name)
         raise AttributeError("%r object has no attribute %r" % (self.__class__, name))
+
+
+def _parse_date_property(property):
+    # Date Field
+    # Also add number fields for YY, MM, DD '{}_day'.format(code_name), '{}_month'.format(code_name),
+    # '{}_year'.format(code_name)
+    return []
+
+
+def _parse_time_property(property):
+    # Accept datetime or just time?
+    # Add individual number fields for HH, MM, SS '{}_hour'.format(code_name),
+    # '{}_minute'.format(code_name), '{}_seconds'.format(code_name)
+    # Add individual number field as unix timestamp (wrap in try, might fail with overflow after 2032)
+    # '{}_timestamp'.format(code_name)
+    return []
+
+
+def _to_search_doc(resource, include=None, exclude=None):
+    """Return a search document generated from the resource's properties.
+
+    This should only be run on non-projected models.
+
+    Args:
+      include: Optional set of property names to include, default all.
+      exclude: Optional set of property names to skip, default none.
+        A name contained in both include and exclude is excluded.
+    """
+    if (include is not None and
+            not isinstance(include, (list, tuple, set, frozenset))):
+        raise TypeError('include should be a list, tuple or set')
+    if (exclude is not None and
+            not isinstance(exclude, (list, tuple, set, frozenset))):
+        raise TypeError('exclude should be a list, tuple or set')
+    fields = [search.AtomField(name='uid', value=resource.uid)]
+    for prop in resource._properties.itervalues():
+        name = prop._code_name
+        if include is not None and name not in include:
+            continue
+        if exclude is not None and name in exclude:
+            continue
+
+        # TODO: these may be repeated properties; handle them correctly
+        # TODO: should the properties themselves define how they are parsed to search docs?
+
+        # fields += prop._get_value(resource)
+        if isinstance(prop, StringProperty):
+            # Atom field
+            # If fuzzy then use autocomplete generator 'fuzzy_{}'.format(code_name)
+            continue
+        if isinstance(prop, ResourceUIDProperty) or isinstance(prop, BlobKeyProperty):
+            # Atom field
+            continue
+        if isinstance(prop, TextProperty):
+            # Text Field
+            continue
+        if isinstance(prop, IntegerProperty) or isinstance(prop, FloatProperty):
+            # Number Field
+            continue
+        if isinstance(prop, DateProperty):
+            date_fields = _parse_date_property(property=prop)
+        if isinstance(prop, DateTimeProperty):
+            date_fields = _parse_date_property(property=prop)
+            time_fields = _parse_time_property(property=prop)
+            continue
+        if isinstance(prop, TimeProperty):
+            time_fields = _parse_time_property(property=prop)
+            continue
+        if isinstance(prop, BooleanProperty):
+            # Atom field -- 'Y' or 'N', depending on boolean value
+            continue
+        if isinstance(prop, GeoPtProperty):
+            # Geopoint field
+            continue
+
+        # TODO: handle other property types? These are the only ones we know for sure can be parsed. Perhaps have
+            # some a signal that other code could hook into? Supply the property and get back a list of search doc
+            # fields?
+
+
+
+    search_doc = search.Document(
+        doc_id=resource.uid,
+        fields=fields
+    )
+    return search_doc
+to_search_doc = _to_search_doc
 
 
 class ClassPropertyDescriptor(object):

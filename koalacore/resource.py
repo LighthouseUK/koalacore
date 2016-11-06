@@ -29,8 +29,25 @@ import copy
 import pickle
 import base64
 import google.appengine.ext.ndb as ndb
+from google.appengine.api import search
 from google.appengine.datastore import entity_pb
 from google.appengine.api import datastore_errors, datastore_types, users
+
+
+def _parse_date_property(property):
+    # Date Field
+    # Also add number fields for YY, MM, DD '{}_day'.format(code_name), '{}_month'.format(code_name),
+    # '{}_year'.format(code_name)
+    return []
+
+
+def _parse_time_property(property):
+    # Accept datetime or just time?
+    # Add individual number fields for HH, MM, SS '{}_hour'.format(code_name),
+    # '{}_minute'.format(code_name), '{}_seconds'.format(code_name)
+    # Add individual number field as unix timestamp (wrap in try, might fail with overflow after 2032)
+    # '{}_timestamp'.format(code_name)
+    return []
 
 
 class ResourceProperty(ndb.Property):
@@ -61,6 +78,11 @@ class ResourceProperty(ndb.Property):
                     entity._history[self._name] = (getattr(entity, self._name, None), value)
 
         super(ResourceProperty, self).__set__(entity=entity, value=value)
+
+    def _to_searchable_property(self):
+        # By default we don't return anything -- the property may not be searchable.
+        # return self._get_for_dict() (parse as necessary)
+        return []
 
 
 class IntegerProperty(ResourceProperty):
@@ -1120,6 +1142,7 @@ class ResourceUIDProperty(ResourceProperty):
 
 
 class BlobKeyProperty(ResourceProperty):
+    # TODO: this needs to be converted to use the ResourceUID class so that we have a unified interface across resources
     """This is exactly the same implementation as the NDB SDK, we just need to inherit from a different base class."""
 
     def _validate(self, value):
@@ -1305,7 +1328,7 @@ class Resource(ndb.Expando):
     @property
     def uid(self):
         try:
-            return self.key.urlsafe()
+            return ResourceUID(raw=self.key)
         except AttributeError:
             return None
 
@@ -1313,7 +1336,7 @@ class Resource(ndb.Expando):
     def to_dict(self, **kwargs):
         result = super(Resource, self).to_dict(**kwargs)
         try:
-            result['uid'] = ResourceUID(raw=self.key)
+            result['uid'] = self.uid
         except AttributeError:
             result['uid'] = None
             # The datastore model has no key attribute, likely because it is a new instance and has not been
@@ -1325,6 +1348,45 @@ class Resource(ndb.Expando):
             pass
 
         return result
+
+    @ndb.utils.positional(1)
+    def to_searchable_properties(self, include=None, exclude=None):
+        """Return a search document generated from the resource's properties.
+
+            This should only be run on non-projected models.
+
+            Args:
+              include: Optional set of property names to include, default all.
+              exclude: Optional set of property names to skip, default none.
+                A name contained in both include and exclude is excluded.
+            """
+        if (include is not None and
+                not isinstance(include, (list, tuple, set, frozenset))):
+            raise TypeError('include should be a list, tuple or set')
+        if (exclude is not None and
+                not isinstance(exclude, (list, tuple, set, frozenset))):
+            raise TypeError('exclude should be a list, tuple or set')
+
+        searchable_properties = []
+
+        if exclude is None or (exclude is not None and 'uid' not in exclude):
+            # Technically this could throw an AttributeError -- search docs should only be created for
+            # resources with a UID.
+            # We include the urlsafe version of the resource UID as well as the NDB key ID. This allows us to search
+            # for a specific ID -- searching is not case-sensitive but the urlsafe resource UIDs are, so you get
+            # erroneous search results unless you search by the key ID specifically.
+            searchable_properties += [search.AtomField(name='uid', value=self.uid.__unicode__()),
+                                      search.AtomField(name='key_id', value=self.key.id())]
+
+        for prop in self._properties.itervalues():
+            name = prop._code_name
+            if include is not None and name not in include:
+                continue
+            if exclude is not None and name in exclude:
+                continue
+            searchable_properties += prop._to_searchable_property()
+
+        return searchable_properties
 
 
 class BaseResourceUID(object):
@@ -1350,6 +1412,9 @@ class BaseResourceUID(object):
 
     def __str__(self):
         return self.urlsafe()
+
+    def __unicode__(self):
+        return unicode(self.__str__(), 'utf-8')
 
 
 class ResourceUID(BaseResourceUID):
