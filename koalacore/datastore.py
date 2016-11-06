@@ -13,6 +13,7 @@ import google.appengine.ext.ndb as ndb
 from google.appengine.ext.ndb.google_imports import ProtocolBuffer
 from .tools import DictDiffer
 from .exceptions import KoalaException
+from .resource import ResourceUID
 
 
 __author__ = 'Matt Badger'
@@ -248,12 +249,11 @@ class NDBInsert(NDBMethod):
             yield self._create_unique_locks(uniques=uniques)
 
         result = yield resource.put_async(**kwargs)
+        resource_uid = ResourceUID(raw=result)
 
-        yield self._trigger_hook(signal=self.post_signal, op_result=result, **kwargs)
+        yield self._trigger_hook(signal=self.post_signal, op_result=resource_uid, **kwargs)
 
-        # TODO: return urlsafe version of the inserted key?
-
-        raise ndb.Return(result)
+        raise ndb.Return(resource_uid)
 
 
 class NDBGet(NDBMethod):
@@ -276,7 +276,7 @@ class NDBGet(NDBMethod):
         kwargs['resource_uid'] = resource_uid
         yield self._trigger_hook(signal=self.pre_signal, **kwargs)
 
-        result = yield resource_uid.get_async(**kwargs)
+        result = yield resource_uid.raw.get_async(**kwargs)
 
         yield self._trigger_hook(signal=self.post_signal, op_result=result, **kwargs)
 
@@ -317,10 +317,11 @@ class NDBUpdate(NDBMethod):
                 yield self._delete_unique_locks(uniques=old_uniques)
 
         result = yield resource.put_async(**kwargs)
+        resource_uid = ResourceUID(raw=result)
 
-        yield self._trigger_hook(signal=self.post_signal, op_result=result, **kwargs)
+        yield self._trigger_hook(signal=self.post_signal, op_result=resource_uid, **kwargs)
 
-        raise ndb.Return(result)
+        raise ndb.Return(resource_uid)
 
 
 class NDBDelete(NDBMethod):
@@ -345,7 +346,7 @@ class NDBDelete(NDBMethod):
         if uniques:
             yield self._delete_unique_locks(uniques=uniques)
 
-        result = yield resource_uid.delete_async(**kwargs)
+        result = yield resource_uid.raw.delete_async(**kwargs)
 
         yield self._trigger_hook(signal=self.post_signal, op_result=result, **kwargs)
 
