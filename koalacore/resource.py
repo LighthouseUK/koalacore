@@ -1088,6 +1088,23 @@ class KeyProperty(ResourceProperty):
             path.add_element().CopyFrom(elem)
         return Key(reference=ref)
 
+    def __get__(self, entity, unused_cls=None):
+        """Descriptor protocol: get the value from the entity."""
+        if entity is None:
+            return self  # __get__ called on class
+        raw = self._get_value(entity)
+        if isinstance(raw, list):
+            return [ResourceUID(raw=key) for key in raw]
+        else:
+            return ResourceUID(raw=raw)
+
+    def __set__(self, entity, value):
+        """Descriptor protocol: set the value on the entity."""
+        if isinstance(value, (list, tuple, set, frozenset)):
+            self._set_value(entity, [uid.raw for uid in value])
+        else:
+            self._set_value(entity, value.raw)
+
 
 class BlobKeyProperty(ResourceProperty):
     """This is exactly the same implementation as the NDB SDK, we just need to inherit from a different base class."""

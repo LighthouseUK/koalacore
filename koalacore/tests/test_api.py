@@ -10,7 +10,7 @@
 import unittest
 from blinker import signal
 from koalacore.api import parse_api_config
-from koalacore.resource import Resource, StringProperty
+from koalacore.resource import Resource, StringProperty, KeyProperty, ResourceUID
 from koalacore.datastore import DatastoreMock
 from koalacore.search import SearchMock
 from google.appengine.ext import testbed
@@ -38,6 +38,7 @@ class INodeResource(Resource):
 
 class INode(Resource):
     file_name = StringProperty('fn', verbose_name='File Name', unique=True, strip_whitespace=True, force_lowercase=True)
+    key_test = KeyProperty('kt', verbose_name='Key Test', repeated=True)
 
 
 class IdentityResource(Resource):
@@ -138,7 +139,8 @@ class TestResource(unittest.TestCase):
         self.testbed.deactivate()
 
     def test_resource_init(self):
-        test = INode(file_name='examplefilename')
+        test = INode(file_name='examplefilename', key_test=[ResourceUID(raw=ndb.Key(INodeResource, 'test1')), ResourceUID(raw=ndb.Key(INodeResource, 'test2'))])
+        new_uid = test.put()
         pass
 
 
