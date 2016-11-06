@@ -1088,15 +1088,24 @@ class KeyProperty(ResourceProperty):
             path.add_element().CopyFrom(elem)
         return Key(reference=ref)
 
-    def __get__(self, entity, unused_cls=None):
-        """Descriptor protocol: get the value from the entity."""
-        if entity is None:
-            return self  # __get__ called on class
-        raw = self._get_value(entity)
+    @staticmethod
+    def _convert_to_resource_uids(raw):
         if isinstance(raw, list):
             return [ResourceUID(raw=key) for key in raw]
         else:
             return ResourceUID(raw=raw)
+
+    def _get_for_dict(self, entity):
+        """
+        Converts the returned value into ResourceUID instances
+        """
+        return self._convert_to_resource_uids(raw=super(KeyProperty, self)._get_for_dict(entity=entity))
+
+    def __get__(self, entity, unused_cls=None):
+        """Descriptor protocol: get the value from the entity."""
+        if entity is None:
+            return self  # __get__ called on class
+        return self._convert_to_resource_uids(raw=self._get_value(entity))
 
     def __set__(self, entity, value):
         """Descriptor protocol: set the value on the entity."""
@@ -1296,13 +1305,19 @@ class Resource(ndb.Expando):
         except AttributeError:
             return None
 
-    def to_dict(self):
-        result = super(Resource, self).to_dict()
+    @ndb.utils.positional(1)
+    def to_dict(self, **kwargs):
+        result = super(Resource, self).to_dict(**kwargs)
         try:
-            result['uid'] = self.key.urlsafe()
+            result['uid'] = ResourceUID(raw=self.key)
         except AttributeError:
+            result['uid'] = None
             # The datastore model has no key attribute, likely because it is a new instance and has not been
             # inserted into the datastore yet.
+            pass
+        except ValueError:
+            result['uid'] = None
+            # The model key is None and so init of ResourceUID fails
             pass
 
         return result
