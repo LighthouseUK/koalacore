@@ -47,7 +47,7 @@ class INodeResource(Resource):
 
 
 class INode(Resource):
-    file_name = StringProperty('fn', verbose_name='File Name', unique=True, strip_whitespace=True, force_lowercase=True)
+    file_name = StringProperty('fn', verbose_name='File Name', unique=True, strip_whitespace=True, force_lowercase=True, fuzzy_search_support=True, complex_fuzzy=True)
     key_test = ResourceUIDProperty('kt', verbose_name='Key Test', repeated=True)
 
 
@@ -151,6 +151,7 @@ class TestResource(unittest.TestCase):
     def test_resource_init(self):
         test = INode(file_name='examplefilename', key_test=[ResourceUID(raw=ndb.Key(INodeResource, 'test1')), ResourceUID(raw=ndb.Key(INodeResource, 'test2'))])
         new_uid = test.put()
+        searchable = test.to_searchable_properties()
         pass
 
 

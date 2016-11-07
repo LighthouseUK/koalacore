@@ -32,22 +32,65 @@ import google.appengine.ext.ndb as ndb
 from google.appengine.api import search
 from google.appengine.datastore import entity_pb
 from google.appengine.api import datastore_errors, datastore_types, users
+from .tools import tokenize
 
 
-def _parse_date_property(property):
-    # Date Field
-    # Also add number fields for YY, MM, DD '{}_day'.format(code_name), '{}_month'.format(code_name),
-    # '{}_year'.format(code_name)
-    return []
+# TODO: in order for large properties (e.g. text or blob) to be unique they need to be hashed. Need to find a good
+# way of hashing the value before creating the unique key.
+
+def _parse_resource_uid_property(resource_uid, field_name=None):
+    prefix = ''
+    key_id = ''
+
+    if field_name is not None:
+        prefix = '{}_'.format(field_name)
+
+    try:
+        key_id = str(resource_uid.raw.id())
+    except AttributeError:
+        pass
+
+    return [
+        search.AtomField(name='{}uid'.format(prefix), value=resource_uid.__unicode__()),
+        search.AtomField(name='{}key_id'.format(prefix), value=key_id)
+    ]
 
 
-def _parse_time_property(property):
-    # Accept datetime or just time?
-    # Add individual number fields for HH, MM, SS '{}_hour'.format(code_name),
-    # '{}_minute'.format(code_name), '{}_seconds'.format(code_name)
-    # Add individual number field as unix timestamp (wrap in try, might fail with overflow after 2032)
-    # '{}_timestamp'.format(code_name)
-    return []
+def _parse_date_property(date_instance, field_name):
+    # date = resource_property._get_value()
+    return [
+        search.DateField(name='{}'.format(field_name), value=date_instance),
+        search.NumberField(name='{}_year'.format(field_name), value=date_instance.year),
+        search.NumberField(name='{}_month'.format(field_name), value=date_instance.month),
+        search.NumberField(name='{}_day'.format(field_name), value=date_instance.day),
+    ]
+
+
+def _parse_time_property(time_instance, field_name):
+    # time = resource_property._get_value().time()
+    time_string = time_instance.strftime('%H:%M:%S')
+    return [
+        search.AtomField(name='{}'.format(field_name), value=time_string),
+        search.NumberField(name='{}_hour'.format(field_name), value=time_instance.hour),
+        search.NumberField(name='{}_minute'.format(field_name), value=time_instance.minute),
+        search.NumberField(name='{}_second'.format(field_name), value=time_instance.second),
+    ]
+
+
+def _parse_datetime_property(datetime_instance, field_name):
+    # datetime = resource_property._get_value()
+    time_string = datetime_instance.strftime('%H:%M:%S')
+    return [
+        search.DateField(name='{}'.format(field_name), value=datetime_instance),
+        search.AtomField(name='{}_time'.format(field_name), value=time_string),
+        search.NumberField(name='{}_timestamp'.format(field_name), value=(datetime_instance - datetime_instance.datetime(1970, 1, 1)).total_seconds()),
+        search.NumberField(name='{}_hour'.format(field_name), value=datetime_instance.hour),
+        search.NumberField(name='{}_minute'.format(field_name), value=datetime_instance.minute),
+        search.NumberField(name='{}_second'.format(field_name), value=datetime_instance.second),
+        search.NumberField(name='{}_year'.format(field_name), value=datetime_instance.year),
+        search.NumberField(name='{}_month'.format(field_name), value=datetime_instance.month),
+        search.NumberField(name='{}_day'.format(field_name), value=datetime_instance.day),
+    ]
 
 
 class ResourceProperty(ndb.Property):
@@ -79,10 +122,30 @@ class ResourceProperty(ndb.Property):
 
         super(ResourceProperty, self).__set__(entity=entity, value=value)
 
-    def _to_searchable_property(self):
-        # By default we don't return anything -- the property may not be searchable.
-        # return self._get_for_dict() (parse as necessary)
+    def _to_search_property(self, field_name, value):
+        """
+        This method will be called with each of the values stored internally (if repeated; otherwise it will be
+        called once)
+
+        Should return a list of search properties (a single value can have multiple search fields e.g. time can be split
+        into hour, minute, second). By default we return an empty list so that unsupported properties can be added
+        without throwing errors unnecessarily.
+
+        :param field_name:
+        :param value:
+        :return:
+        """
         return []
+
+    def _to_searchable_properties(self, entity):
+        search_properties = []
+        value = self._get_for_dict(entity=entity)
+        if isinstance(value, list):
+            for item in value:
+                search_properties += self._to_search_property(field_name=self._code_name, value=item)
+        else:
+            return self._to_search_property(field_name=self._code_name, value=value)
+        return search_properties
 
 
 class IntegerProperty(ResourceProperty):
@@ -104,6 +167,11 @@ class IntegerProperty(ResourceProperty):
         if not v.has_int64value():
             return None
         return int(v.int64value())
+
+    def _to_search_property(self, field_name, value):
+        return [
+            search.NumberField(name=field_name, value=value)
+        ]
 
 
 class FloatProperty(ResourceProperty):
@@ -129,6 +197,11 @@ class FloatProperty(ResourceProperty):
             return None
         return v.doublevalue()
 
+    def _to_search_property(self, field_name, value):
+        return [
+            search.NumberField(name=field_name, value=value)
+        ]
+
 
 class BooleanProperty(ResourceProperty):
     """This is exactly the same implementation as the NDB SDK, we just need to inherit from a different base class."""
@@ -153,6 +226,11 @@ class BooleanProperty(ResourceProperty):
         # The booleanvalue field is an int32, so booleanvalue() returns an
         # int, hence the conversion.
         return bool(v.booleanvalue())
+
+    def _to_search_property(self, field_name, value):
+        return [
+            search.AtomField(name=field_name, value='Yes' if value else 'No')
+        ]
 
 
 _MAX_STRING_LENGTH = ndb.model._MAX_STRING_LENGTH
@@ -242,7 +320,14 @@ class BlobProperty(ResourceProperty):
 
 
 class TextProperty(BlobProperty):
-    """This is exactly the same implementation as the NDB SDK, we just need to inherit from a different base class."""
+    _attributes = ResourceProperty._attributes + ['_fuzzy', '_strip', '_complex_fuzzy']
+
+    @ndb.utils.positional(1 + ResourceProperty._positional)  # Add 1 for self.
+    def __init__(self, name=None, strip_whitespace=True, fuzzy_search_support=False, complex_fuzzy=False, **kwargs):
+        super(TextProperty, self).__init__(name=name, **kwargs)
+        self._strip = strip_whitespace
+        self._fuzzy = fuzzy_search_support
+        self._complex_fuzzy = complex_fuzzy
 
     def _validate(self, value):
         if isinstance(value, str):
@@ -279,17 +364,6 @@ class TextProperty(BlobProperty):
                 # TODO: Eventually we should close this hole.
                 pass
 
-
-class StringProperty(TextProperty):
-    _indexed = True
-    _attributes = ResourceProperty._attributes + ['_strip', '_lower']
-
-    @ndb.utils.positional(1 + ResourceProperty._positional)  # Add 1 for self.
-    def __init__(self, name=None, strip_whitespace=True, force_lowercase=False, **kwargs):
-        super(StringProperty, self).__init__(name=name, **kwargs)
-        self._strip = strip_whitespace
-        self._lower = force_lowercase
-
     def __set__(self, entity, value):
         """
         If you look at the documentation for the validation attribute of a property you will see that they allow you to
@@ -315,6 +389,37 @@ class StringProperty(TextProperty):
                     except AttributeError:
                         # The value cannot simply be stripped. Custom formatting should be used in a dedicated method.
                         pass
+
+        super(ResourceProperty, self).__set__(entity=entity, value=value)
+
+    def _to_search_property(self, field_name, value):
+        search_properties = [
+            search.TextField(name=field_name, value=value)
+        ]
+
+        if self._fuzzy:
+            search_properties.append(search.TextField(name='fuzzy_{}'.format(field_name),
+                                                      value=tokenize(input_string=value, complex=self._complex_fuzzy)))
+        return search_properties
+
+
+class StringProperty(TextProperty):
+    _indexed = True
+    _attributes = TextProperty._attributes + ['_lower']
+
+    @ndb.utils.positional(1 + ResourceProperty._positional)  # Add 1 for self.
+    def __init__(self, name=None, force_lowercase=False, **kwargs):
+        super(StringProperty, self).__init__(name=name, **kwargs)
+        self._lower = force_lowercase
+
+    def __set__(self, entity, value):
+        """
+        If you look at the documentation for the validation attribute of a property you will see that they allow you to
+        coerce values inside a validation function. I find this to be somewhat unintuitive and prefer the validators
+        to not modify the submitted values. Hence the addition of the `strip_whitespace` and `force_lowercase` init
+        args.
+        """
+
         if self._lower:
             if value is not None:
                 if hasattr(value, 'lower'):
@@ -326,7 +431,16 @@ class StringProperty(TextProperty):
                         # The value cannot simply be lowered. Custom formatting should be used in a dedicated method.
                         pass
 
-        super(ResourceProperty, self).__set__(entity=entity, value=value)
+        super(StringProperty, self).__set__(entity=entity, value=value)
+
+    def _to_search_property(self, field_name, value):
+        search_properties = [
+            search.AtomField(name=field_name, value=value)
+        ]
+
+        if self._fuzzy:
+            search_properties.append(search.TextField(name='fuzzy_{}'.format(field_name), value=tokenize(input_string=value, complex=self._complex_fuzzy)))
+        return search_properties
 
 
 _EPOCH = ndb.model._EPOCH
@@ -387,6 +501,9 @@ class DateTimeProperty(ResourceProperty):
         ival = v.int64value()
         return _EPOCH + datetime.timedelta(microseconds=ival)
 
+    def _to_search_property(self, field_name, value):
+        return _parse_datetime_property(datetime_instance=value, field_name=field_name)
+
 
 _date_to_datetime = ndb.model._date_to_datetime
 _time_to_datetime = ndb.model._time_to_datetime
@@ -411,6 +528,9 @@ class DateProperty(DateTimeProperty):
     def _now(self):
         return datetime.datetime.utcnow().date()
 
+    def _to_search_property(self, field_name, value):
+        return _parse_date_property(date_instance=value, field_name=field_name)
+
 
 class TimeProperty(DateTimeProperty):
     """This is exactly the same implementation as the NDB SDK, we just need to inherit from a different base class."""
@@ -430,6 +550,9 @@ class TimeProperty(DateTimeProperty):
 
     def _now(self):
         return datetime.datetime.utcnow().time()
+
+    def _to_search_property(self, field_name, value):
+        return _parse_time_property(time_instance=value, field_name=field_name)
 
 
 BlobKey = ndb.model.BlobKey
@@ -929,6 +1052,11 @@ class GeoPtProperty(ResourceProperty):
         pv = v.pointvalue()
         return GeoPt(pv.x(), pv.y())
 
+    def _to_search_property(self, field_name, value):
+        return [
+            search.GeoField(name=field_name, value=search.GeoPoint(latitude=value.lat, longitude=value.lon))
+        ]
+
 
 class PickleProperty(BlobProperty):
     """This is exactly the same implementation as the NDB SDK, we just need to inherit from a different base class."""
@@ -1139,6 +1267,9 @@ class ResourceUIDProperty(ResourceProperty):
             self._set_value(entity, [uid.raw for uid in value])
         else:
             self._set_value(entity, value.raw)
+
+    def _to_search_property(self, field_name, value):
+        return _parse_resource_uid_property(resource_uid=value, field_name=field_name)
 
 
 class BlobKeyProperty(ResourceProperty):
@@ -1375,8 +1506,7 @@ class Resource(ndb.Expando):
             # We include the urlsafe version of the resource UID as well as the NDB key ID. This allows us to search
             # for a specific ID -- searching is not case-sensitive but the urlsafe resource UIDs are, so you get
             # erroneous search results unless you search by the key ID specifically.
-            searchable_properties += [search.AtomField(name='uid', value=self.uid.__unicode__()),
-                                      search.AtomField(name='key_id', value=self.key.id())]
+            searchable_properties += _parse_resource_uid_property(resource_uid=self.uid)
 
         for prop in self._properties.itervalues():
             name = prop._code_name
@@ -1384,7 +1514,7 @@ class Resource(ndb.Expando):
                 continue
             if exclude is not None and name in exclude:
                 continue
-            searchable_properties += prop._to_searchable_property()
+            searchable_properties += prop._to_searchable_properties(self)
 
         return searchable_properties
 

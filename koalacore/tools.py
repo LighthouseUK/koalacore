@@ -29,16 +29,60 @@ def random_string(length=5):
     return ''.join(choice(lis) for _ in xrange(length))
 
 
-def generate_autocomplete_tokens(original_string):
-    if not original_string:
+def simple_tokenizer(input_string, return_string=True, **kwargs):
+    if not input_string:
         return ''
-    suggestions = []
-    for word in original_string.split():
+    tokens = []
+    for word in input_string.split():
         prefix = ""
         for letter in word:
             prefix += letter
-            suggestions.append(prefix)
-    return ' '.join(suggestions)
+            tokens.append(prefix)
+    if return_string:
+        return ' '.join(tokens)
+    else:
+        return tokens
+
+
+def complex_tokenizer(input_string, minimum_length=1, return_string=True, **kwargs):
+    """
+    This method will return a huge string, even if the input is relatively small. Be prepared to handle this. For
+    example, you will likely need to use ndb.TextField if you intend to store this in the datastore. Similarly, you will
+    probably need to use search.TextField if you intend to use the output in a search document.
+
+    :param return_string:
+    :param input_string:
+    :param minimum_length:
+    :param kwargs:
+    :return:
+    """
+    if minimum_length < 1:
+        raise ValueError('minimum_length cannot be less than 1')
+    if not input_string:
+        return ""
+    tokens = []
+    for w in input_string.split():
+        j = minimum_length
+        while True:
+            if len(w) <= j:
+                tokens.append(w)
+                break
+            for i in range(len(w) - j + 1):
+                tokens.append(w[i:i + j])
+            if j == len(w):
+                break
+            j += 1
+    if return_string:
+        return ' '.join(tokens)
+    else:
+        return tokens
+
+
+def tokenize(input_string, complex=False, **kwargs):
+    if complex:
+        return complex_tokenizer(input_string=input_string, **kwargs)
+    else:
+        return simple_tokenizer(input_string=input_string, **kwargs)
 
 
 def eval_boolean_string(source):
