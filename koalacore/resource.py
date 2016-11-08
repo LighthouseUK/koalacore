@@ -35,6 +35,19 @@ from google.appengine.api import datastore_errors, datastore_types, users
 from .tools import tokenize
 
 
+# These definitions are just for convenience - it means we don't have to import the gae search lib
+# in each of the modules that implement resource properties.
+Document = search.Document
+update_queue = 'search-index-update'
+AtomField = search.AtomField
+TextField = search.TextField
+HtmlField = search.HtmlField
+NumberField = search.NumberField
+DateField = search.DateField
+GeoField = search.GeoField
+GeoPoint = search.GeoPoint
+
+
 # TODO: in order for large properties (e.g. text or blob) to be unique they need to be hashed. Need to find a good
 # way of hashing the value before creating the unique key.
 
@@ -51,18 +64,18 @@ def _parse_resource_uid_property(resource_uid, field_name=None):
         pass
 
     return [
-        search.AtomField(name='{}uid'.format(prefix), value=resource_uid.__unicode__()),
-        search.AtomField(name='{}key_id'.format(prefix), value=key_id)
+        AtomField(name='{}uid'.format(prefix), value=resource_uid.__unicode__()),
+        AtomField(name='{}key_id'.format(prefix), value=key_id)
     ]
 
 
 def _parse_date_property(date_instance, field_name):
     # date = resource_property._get_value()
     return [
-        search.DateField(name='{}'.format(field_name), value=date_instance),
-        search.NumberField(name='{}_year'.format(field_name), value=date_instance.year),
-        search.NumberField(name='{}_month'.format(field_name), value=date_instance.month),
-        search.NumberField(name='{}_day'.format(field_name), value=date_instance.day),
+        DateField(name='{}'.format(field_name), value=date_instance),
+        NumberField(name='{}_year'.format(field_name), value=date_instance.year),
+        NumberField(name='{}_month'.format(field_name), value=date_instance.month),
+        NumberField(name='{}_day'.format(field_name), value=date_instance.day),
     ]
 
 
@@ -70,10 +83,10 @@ def _parse_time_property(time_instance, field_name):
     # time = resource_property._get_value().time()
     time_string = time_instance.strftime('%H:%M:%S')
     return [
-        search.AtomField(name='{}'.format(field_name), value=time_string),
-        search.NumberField(name='{}_hour'.format(field_name), value=time_instance.hour),
-        search.NumberField(name='{}_minute'.format(field_name), value=time_instance.minute),
-        search.NumberField(name='{}_second'.format(field_name), value=time_instance.second),
+        AtomField(name='{}'.format(field_name), value=time_string),
+        NumberField(name='{}_hour'.format(field_name), value=time_instance.hour),
+        NumberField(name='{}_minute'.format(field_name), value=time_instance.minute),
+        NumberField(name='{}_second'.format(field_name), value=time_instance.second),
     ]
 
 
@@ -81,15 +94,15 @@ def _parse_datetime_property(datetime_instance, field_name):
     # datetime = resource_property._get_value()
     time_string = datetime_instance.strftime('%H:%M:%S')
     return [
-        search.DateField(name='{}'.format(field_name), value=datetime_instance),
-        search.AtomField(name='{}_time'.format(field_name), value=time_string),
-        search.NumberField(name='{}_timestamp'.format(field_name), value=(datetime_instance - datetime.datetime(1970, 1, 1)).total_seconds()),
-        search.NumberField(name='{}_hour'.format(field_name), value=datetime_instance.hour),
-        search.NumberField(name='{}_minute'.format(field_name), value=datetime_instance.minute),
-        search.NumberField(name='{}_second'.format(field_name), value=datetime_instance.second),
-        search.NumberField(name='{}_year'.format(field_name), value=datetime_instance.year),
-        search.NumberField(name='{}_month'.format(field_name), value=datetime_instance.month),
-        search.NumberField(name='{}_day'.format(field_name), value=datetime_instance.day),
+        DateField(name='{}'.format(field_name), value=datetime_instance),
+        AtomField(name='{}_time'.format(field_name), value=time_string),
+        NumberField(name='{}_timestamp'.format(field_name), value=(datetime_instance - datetime.datetime(1970, 1, 1)).total_seconds()),
+        NumberField(name='{}_hour'.format(field_name), value=datetime_instance.hour),
+        NumberField(name='{}_minute'.format(field_name), value=datetime_instance.minute),
+        NumberField(name='{}_second'.format(field_name), value=datetime_instance.second),
+        NumberField(name='{}_year'.format(field_name), value=datetime_instance.year),
+        NumberField(name='{}_month'.format(field_name), value=datetime_instance.month),
+        NumberField(name='{}_day'.format(field_name), value=datetime_instance.day),
     ]
 
 
@@ -170,7 +183,7 @@ class IntegerProperty(ResourceProperty):
 
     def _to_search_property(self, field_name, value):
         return [
-            search.NumberField(name=field_name, value=value)
+            NumberField(name=field_name, value=value)
         ]
 
 
@@ -199,7 +212,7 @@ class FloatProperty(ResourceProperty):
 
     def _to_search_property(self, field_name, value):
         return [
-            search.NumberField(name=field_name, value=value)
+            NumberField(name=field_name, value=value)
         ]
 
 
@@ -229,7 +242,7 @@ class BooleanProperty(ResourceProperty):
 
     def _to_search_property(self, field_name, value):
         return [
-            search.AtomField(name=field_name, value='Yes' if value else 'No')
+            AtomField(name=field_name, value='Yes' if value else 'No')
         ]
 
 
@@ -394,11 +407,11 @@ class TextProperty(BlobProperty):
 
     def _to_search_property(self, field_name, value):
         search_properties = [
-            search.TextField(name=field_name, value=value)
+            TextField(name=field_name, value=value)
         ]
 
         if self._fuzzy:
-            search_properties.append(search.TextField(name='fuzzy_{}'.format(field_name),
+            search_properties.append(TextField(name='fuzzy_{}'.format(field_name),
                                                       value=tokenize(input_string=value, complex=self._complex_fuzzy)))
         return search_properties
 
@@ -435,11 +448,11 @@ class StringProperty(TextProperty):
 
     def _to_search_property(self, field_name, value):
         search_properties = [
-            search.AtomField(name=field_name, value=value)
+            AtomField(name=field_name, value=value)
         ]
 
         if self._fuzzy:
-            search_properties.append(search.TextField(name='fuzzy_{}'.format(field_name), value=tokenize(input_string=value, complex=self._complex_fuzzy)))
+            search_properties.append(TextField(name='fuzzy_{}'.format(field_name), value=tokenize(input_string=value, complex=self._complex_fuzzy)))
         return search_properties
 
 
@@ -1054,7 +1067,7 @@ class GeoPtProperty(ResourceProperty):
 
     def _to_search_property(self, field_name, value):
         return [
-            search.GeoField(name=field_name, value=search.GeoPoint(latitude=value.lat, longitude=value.lon))
+            GeoField(name=field_name, value=GeoPoint(latitude=value.lat, longitude=value.lon))
         ]
 
 
@@ -1545,7 +1558,7 @@ class Resource(ndb.Expando):
               exclude: Optional set of property names to skip, default none.
                 A name contained in both include and exclude is excluded.
             """
-        return search.Document(
+        return Document(
             doc_id=self.uid.__unicode__,
             fields=self.to_searchable_properties(include=include, exclude=exclude)
         )

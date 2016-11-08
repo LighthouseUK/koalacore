@@ -20,7 +20,7 @@
 
 from blinker import signal
 import google.appengine.ext.ndb as ndb
-from google.appengine.ext.ndb.google_imports import ProtocolBuffer
+from google.appengine.api import search
 from .tools import DictDiffer
 from .exceptions import KoalaException
 from .resource import ResourceUID
@@ -30,6 +30,7 @@ __author__ = 'Matt Badger'
 
 
 async = ndb.tasklet
+Index = search.Index
 
 
 class ResourceNotFound(KoalaException):
@@ -108,9 +109,8 @@ class Result(object):
 
 
 class SPIMethod(object):
-    def __init__(self, code_name, resource_name):
+    def __init__(self, code_name):
         self.code_name = code_name
-        self.resource_name = resource_name
 
         self.pre_name = 'pre_{}'.format(self.code_name)
         self.post_name = 'post_{}'.format(self.code_name)
@@ -149,8 +149,9 @@ class UniqueValue(ndb.Model):
 
 
 class NDBMethod(SPIMethod):
-    def __init__(self, uniques_value_model=UniqueValue, force_unique_parse=False, **kwargs):
+    def __init__(self, resource_name, uniques_value_model=UniqueValue, force_unique_parse=False, **kwargs):
         super(NDBMethod, self).__init__(**kwargs)
+        self.resource_name = resource_name
         self.uniques_value_model = uniques_value_model
         self.force_unique_parse = force_unique_parse
 
@@ -425,26 +426,14 @@ class NDBDatastore(object):
 
     """
 
-    def __init__(self, resource_model, unwanted_resource_kwargs=None, *args, **kwargs):
-        self._datastore_model = None
-        # These are the built in resource attributes that we don't want to persist to NDB
-        default_unwanted_kwargs = ['uniques_modified', 'immutable', 'track_unique_modifications', '_history',
-                                   '_history_tracking']
-
-        if unwanted_resource_kwargs is not None:
-            default_unwanted_kwargs = default_unwanted_kwargs + unwanted_resource_kwargs
-
-        self._unwanted_resource_kwargs = default_unwanted_kwargs
-
-        resource_name = resource_model.__name__
-
+    def __init__(self, resource_name, **kwargs):
         self.insert = NDBInsert(resource_name=resource_name)
         self.get = NDBGet(resource_name=resource_name)
         self.update = NDBUpdate(resource_name=resource_name)
         self.delete = NDBDelete(resource_name=resource_name)
 
     def build_resource_uid(self, desired_id, parent=None, namespace=None, urlsafe=True):
-        # TODO: change this to use self.resource_model instead of self.datastore_model.
+        # TODO: fix this for new resource model
         if parent and namespace:
             new_key = ndb.Key(self._datastore_model, desired_id, parent=parent, namespace=namespace)
         elif parent:
@@ -459,24 +448,270 @@ class NDBDatastore(object):
         else:
             return new_key
 
-    @staticmethod
-    def diff_model_properties(source, target):
+
+def diff_resource_properties(source, target):
+    """
+    Find the differences between two resource instances (excluding the keys).
+
+    :param source:
+    :param target:
+    :returns set of property names that have changed:
+    """
+    source_dict = source.to_dict()
+    target_dict = target.to_dict()
+
+    if hasattr(source, 'uid'):
+        source_dict['uid'] = source.uid
+    if hasattr(target, 'uid'):
+        target_dict['uid'] = target.uid
+
+    diff = DictDiffer(source_dict, target_dict)
+
+    modified = diff.changed()
+    return modified
+
+
+class SearchMethod(SPIMethod):
+    def __init__(self, search_index, **kwargs):
+        super(SearchMethod, self).__init__(**kwargs)
+        self.search_index = search_index
+
+    @async
+    def __call__(self, **kwargs):
         """
-        Find the differences between two models (excluding the keys).
+        API methods are very simple. They simply emit signal which you can receive and act upon. By default
+        there are two signals: pre and post.
 
-        :param source:
-        :param target:
-        :returns set of property names that have changed:
+        :param kwargs:
+        :return:
         """
-        source_dict = source.to_dict()
-        target_dict = target.to_dict()
+        yield self._trigger_hook(signal=self.pre_signal, **kwargs)
+        result = yield self._internal_op(**kwargs)
+        yield self._trigger_hook(signal=self.post_signal, op_result=result, **kwargs)
+        raise ndb.Return(result)
 
-        if hasattr(source, 'uid'):
-            source_dict['uid'] = source.uid
-        if hasattr(target, 'uid'):
-            target_dict['uid'] = target.uid
 
-        diff = DictDiffer(source_dict, target_dict)
+class SearchInsert(SearchMethod):
+    def __init__(self, **kwargs):
+        kwargs['code_name'] = 'insert'
+        super(SearchInsert, self).__init__(**kwargs)
 
-        modified = diff.changed()
-        return modified
+    def _internal_op(self, search_doc, **kwargs):
+        """
+        Insert search_doc into the Search index.
+
+        :param search_doc:
+        :param kwargs:
+        :returns future (key for the inserted search doc):
+        """
+        result = yield self.search_index.put_async(search_doc, **kwargs)
+        raise ndb.Return(result)
+
+
+class SearchGet(SearchMethod):
+    def __init__(self, **kwargs):
+        kwargs['code_name'] = 'get'
+        super(SearchGet, self).__init__(**kwargs)
+
+    def _internal_op(self, search_doc_uid, **kwargs):
+        """
+        Get model from the Search index.
+
+        :param search_doc_uid:
+        :param kwargs:
+        :returns future (key for the inserted search doc):
+        """
+        result = yield self.search_index.get_async(search_doc_uid, **kwargs)
+        raise ndb.Return(result)
+
+
+class SearchUpdate(SearchMethod):
+    def __init__(self, **kwargs):
+        kwargs['code_name'] = 'update'
+        super(SearchUpdate, self).__init__(**kwargs)
+
+    def _internal_op(self, search_doc, **kwargs):
+        """
+        Update model in the Search index.
+
+        :param search_doc:
+        :param kwargs:
+        :returns future (key for the inserted search doc):
+        """
+        result = yield self.search_index.put_async(search_doc, **kwargs)
+        raise ndb.Return(result)
+
+
+class SearchDelete(SearchMethod):
+    def __init__(self, **kwargs):
+        kwargs['code_name'] = 'delete'
+        super(SearchDelete, self).__init__(**kwargs)
+
+    def _internal_op(self, search_doc_uid, **kwargs):
+        """
+        Delete model from the Search index.
+
+        :param search_doc_uid:
+        :param kwargs:
+        """
+        result = yield self.search_index.delete_async(search_doc_uid, **kwargs)
+        raise ndb.Return(result)
+
+
+class SearchQuery(SearchMethod):
+    def __init__(self, repeated_properties=None, result_model=Result, search_results_model=SearchResults, **kwargs):
+        super(SearchQuery, self).__init__(**kwargs)
+        self.repeated_properties = repeated_properties
+        self.result_model = result_model
+        self.search_results_model = search_results_model
+
+    def _internal_op(self, query_string, explicit_query_string_overrides=None, cursor_support=False,
+                     existing_cursor=None, limit=20, number_found_accuracy=None, offset=None, sort_options=None,
+                     returned_fields=None, ids_only=False, snippeted_fields=None, returned_expressions=None,
+                     sort_limit=1000, **kwargs):
+        """
+        Query search records in the search index. Essentially the params are the same as for GAE Search API.
+        The exceptions are cursor, returned_expressions and sort_options.
+
+        'explicit_query_string_overrides' is an iterable of tuples of the form ('property', 'value') which can be
+        used to explicitly overwrite values from the supplied query string. This is useful if you have some custom
+        filters that must only have certain values. It can also be used to prevent searches occurring with
+        restricted values; useful as part of permission systems.
+
+        Cursor is replaced by two args - cursor_support and existing_cursor. Existing cursor is the websafe version
+        of a cursor returned by a previous query. Obviously if cursor_support is False then we don't process the
+        cursor.
+
+        Both returned_expressions and sort_options are lists of tuples instead of passing in search.FieldExpressions
+        or search.SortOptions (as this would leak implementation to the client).
+
+        returned_expression = ('name_of_expression', 'expression')
+        sort_option = ('sort_expression, 'direction', 'default_value)
+
+        See https://cloud.google.com/appengine/docs/python/search/options for more detailed explanations.
+
+        Sort limit should be overridden if possible matches exceeds 1000. It should be set to a value higher, or
+        equal to, the maximum number of results that could be found for a given search.
+
+        :param query_string:
+        :param explicit_query_string_overrides:
+        :param cursor_support:
+        :param existing_cursor:
+        :param limit:
+        :param number_found_accuracy:
+        :param offset:
+        :param sort_options:
+        :param returned_fields:
+        :param ids_only:
+        :param snippeted_fields:
+        :param returned_expressions:
+        :param sort_limit:
+        :param args:
+        :param kwargs:
+        :raises search.Error:
+        :raises TypeError:
+        :raises ValueError:
+        :returns future (SearchResults object which contains matching Results):
+        """
+
+        cursor = None
+        compiled_sort_options = None
+        compiled_field_expressions = None
+
+        if explicit_query_string_overrides:
+            # TODO: use regex to split up the query string and swap out/append the explicit params. At the moment
+            # multiple values could be passed for the same category, leading to possible data leaks
+            query_fragments = []
+
+            for explicit_param in explicit_query_string_overrides:
+                query_fragments.append(u'{}="{}"'.format(explicit_param[0],
+                                                         explicit_param[1].replace(',', '\,').replace('+',
+                                                                                                      '\+').strip()))
+
+            explicit_string = u' AND '.join(query_fragments)
+            if explicit_string:
+                query_string = u'{} {}'.format(query_string, explicit_string)
+
+        if cursor_support:
+            if existing_cursor:
+                cursor = search.Cursor(web_safe_string=existing_cursor)
+            else:
+                cursor = search.Cursor()
+
+        if sort_options:
+            parsed_options = [search.SortExpression(expression=sort_option[0],
+                                                    direction=sort_option[1],
+                                                    default_value=sort_option[2]) for sort_option in sort_options]
+            compiled_sort_options = search.SortOptions(expressions=parsed_options, limit=sort_limit)
+
+        if returned_expressions:
+            compiled_field_expressions = [search.FieldExpression(name=field_exp[0], expression=field_exp[1]) for
+                                          field_exp in returned_expressions]
+
+        options = search.QueryOptions(
+            ids_only=ids_only,
+            limit=limit,
+            snippeted_fields=snippeted_fields,
+            number_found_accuracy=number_found_accuracy,
+            returned_fields=returned_fields,
+            returned_expressions=compiled_field_expressions,
+            sort_options=compiled_sort_options,
+            offset=offset,
+            cursor=cursor,
+        )
+
+        query = search.Query(query_string=query_string, options=options)
+        search_result = yield self.search_index.search_async(query=query)
+
+        result_cursor = None
+        parsed_results = []
+
+        for result in search_result:
+            parsed_result = self.result_model(uid=result.doc_id)
+
+            for field in result.fields:
+                if self.repeated_properties is not None and (field.name in self.repeated_properties):
+                    # Attempt to handle repeated fields in the search result
+                    try:
+                        setattr(parsed_result, field.name, [field.value for field in result[field.name]])
+                    except TypeError:
+                        # This is ok; simply proceed to set the field value as normal
+                        pass
+                    else:
+                        # On success we want to skip the remaining code because we have already set the value
+                        continue
+
+                setattr(parsed_result, field.name, field.value)
+
+            parsed_results.append(parsed_result)
+
+        if search_result.cursor:
+            result_cursor = search_result.cursor.web_safe_string
+
+        result = self.search_results_model(results_count=search_result.number_found,
+                                           results=parsed_results,
+                                           cursor=result_cursor)
+
+        raise ndb.Return(result)
+
+
+class GAESearch(object):
+
+    def __init__(self, index_name, resource_model=None, result_model=Result, search_results_model=SearchResults):
+        self.index_name = index_name
+
+        self.search_index = Index(name=index_name)
+        resource_repeated_properties = None
+
+        if resource_model is not None:
+            resource_repeated_properties = set(resource_property._code_name for resource_property in resource_model._properties if resource_property._repeated)
+
+        self.insert = SearchInsert(search_index=self.search_index)
+        self.get = SearchGet(search_index=self.search_index)
+        self.update = SearchUpdate(search_index=self.search_index)
+        self.delete = SearchDelete(search_index=self.search_index)
+        # The main method!
+        self.search = SearchQuery(search_index=self.search_index,
+                                  repeated_properties=resource_repeated_properties,
+                                  result_model=result_model,
+                                  search_results_model=search_results_model)
