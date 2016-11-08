@@ -20,8 +20,8 @@
 import unittest
 from blinker import signal
 from koalacore.api import parse_api_config
-from koalacore.resource import Resource, StringProperty, ResourceUIDProperty, ResourceUID
-from koalacore.datastore import DatastoreMock
+from koalacore.resource import Resource, StringProperty, ResourceUIDProperty, ResourceUID, DateProperty, DateTimeProperty, TimeProperty
+from koalacore.spi import DatastoreMock
 from koalacore.search import SearchMock
 from google.appengine.ext import testbed
 from google.appengine.ext import deferred
@@ -49,6 +49,9 @@ class INodeResource(Resource):
 class INode(Resource):
     file_name = StringProperty('fn', verbose_name='File Name', unique=True, strip_whitespace=True, force_lowercase=True, fuzzy_search_support=True, complex_fuzzy=True)
     key_test = ResourceUIDProperty('kt', verbose_name='Key Test', repeated=True)
+    date_test = DateProperty('dt', auto_now_add=True)
+    datetime_test = DateTimeProperty('dtt', auto_now_add=True)
+    time_test = TimeProperty('tt', auto_now_add=True)
 
 
 class IdentityResource(Resource):
@@ -150,8 +153,12 @@ class TestResource(unittest.TestCase):
 
     def test_resource_init(self):
         test = INode(file_name='examplefilename', key_test=[ResourceUID(raw=ndb.Key(INodeResource, 'test1')), ResourceUID(raw=ndb.Key(INodeResource, 'test2'))])
+        test.file_name = 'changedfilename'
+        # new_uid = test.put(use_cache=False, use_memcache=False)
         new_uid = test.put()
         searchable = test.to_searchable_properties()
+        retrieved = new_uid.get()
+        retrieved.file_name = 'newfilename'
         pass
 
 

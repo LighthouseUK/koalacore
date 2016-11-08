@@ -83,7 +83,7 @@ def _parse_datetime_property(datetime_instance, field_name):
     return [
         search.DateField(name='{}'.format(field_name), value=datetime_instance),
         search.AtomField(name='{}_time'.format(field_name), value=time_string),
-        search.NumberField(name='{}_timestamp'.format(field_name), value=(datetime_instance - datetime_instance.datetime(1970, 1, 1)).total_seconds()),
+        search.NumberField(name='{}_timestamp'.format(field_name), value=(datetime_instance - datetime.datetime(1970, 1, 1)).total_seconds()),
         search.NumberField(name='{}_hour'.format(field_name), value=datetime_instance.hour),
         search.NumberField(name='{}_minute'.format(field_name), value=datetime_instance.minute),
         search.NumberField(name='{}_second'.format(field_name), value=datetime_instance.second),
@@ -95,7 +95,7 @@ def _parse_datetime_property(datetime_instance, field_name):
 
 class ResourceProperty(ndb.Property):
     _positional = 1  # Only name is a positional argument.
-    _attributes = ndb.Property._attributes + ['_immutable', '_unique']
+    _attributes = ndb.Property._attributes + ['_immutable', '_unique', '_track_revisions']
 
     @ndb.utils.positional(1 + _positional)  # Add 1 for self.
     def __init__(self, immutable=False, unique=False, track_revisions=True, **kwargs):
@@ -113,7 +113,7 @@ class ResourceProperty(ndb.Property):
 
         if entity._init_complete:
             if self._unique:
-                entity._uniques_modified.append(self._name)
+                entity._uniques_modified.add(self._name)
             if self._track_revisions:
                 if self._name in entity._history:
                     entity._history[self._name] = (entity._history[self._name][0], value)
@@ -390,7 +390,7 @@ class TextProperty(BlobProperty):
                         # The value cannot simply be stripped. Custom formatting should be used in a dedicated method.
                         pass
 
-        super(ResourceProperty, self).__set__(entity=entity, value=value)
+        super(TextProperty, self).__set__(entity=entity, value=value)
 
     def _to_search_property(self, field_name, value):
         search_properties = [
@@ -1404,11 +1404,27 @@ class LocalStructuredProperty(_StructuredGetForDictMixin, BlobProperty):
 
 class Resource(ndb.Expando):
     _uniques = None
+    _default_indexed = False
 
     def __init__(self, *args, **kwargs):
-        # TODO: need a way for other backends to set a uid/key. Potentially have a setter for the UID property?
+        """
+        Warnings:
+
+        - _history is at the request level. Any change you make during the request will be recorded here as a mapping of
+        initial value => most recent modification. It *will not* reset when you execute an NDB put. Therefore you should
+        not rely on this for transactional change tracking. Instead, when a put is completed you should record the new
+        value separately and then reconstruct the history with a query.
+
+        - _uniques_modified is at the request level. If you execute multiple put operations within the same request
+        (modify, put, modify, put) you might get unexpected behaviour -- the put may fail because a unique property is
+        still shown as modified; the unique lock operation will fail because the unique value is already in
+        the datastore.
+
+        :param args:
+        :param kwargs:
+        """
         self._init_complete = False
-        self._uniques_modified = []
+        self._uniques_modified = set()
         self._history = {}
         super(Resource, self).__init__(*args, **kwargs)
         self._init_complete = True
@@ -1482,7 +1498,7 @@ class Resource(ndb.Expando):
 
     @ndb.utils.positional(1)
     def to_searchable_properties(self, include=None, exclude=None):
-        """Return a search document generated from the resource's properties.
+        """Return search document properties generated from the resource's properties.
 
             This should only be run on non-projected models.
 
@@ -1517,6 +1533,22 @@ class Resource(ndb.Expando):
             searchable_properties += prop._to_searchable_properties(self)
 
         return searchable_properties
+
+    @ndb.utils.positional(1)
+    def to_search_doc(self, include=None, exclude=None):
+        """Return a search document generated from the resource's properties.
+
+            This should only be run on non-projected models.
+
+            Args:
+              include: Optional set of property names to include, default all.
+              exclude: Optional set of property names to skip, default none.
+                A name contained in both include and exclude is excluded.
+            """
+        return search.Document(
+            doc_id=self.uid.__unicode__,
+            fields=self.to_searchable_properties(include=include, exclude=exclude)
+        )
 
 
 class BaseResourceUID(object):

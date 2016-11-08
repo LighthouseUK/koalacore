@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-    koalacore.datastore
+    koalacore.spi
     ~~~~~~~~~~~~~~~~~~
 
     Copyright 2016 Lighthouse
@@ -60,11 +60,12 @@ class UniqueValueRequired(ResourceException, ValueError):
         self.errors = errors
 
 
-class DatastoreMock(object):
-    def __init__(self, methods, resource_model, *args, **kwargs):
-        # TODO: accept list of method names and generate them
-        for method in methods:
-            setattr(self, method, NDBMethod(code_name=method, resource_name=resource_model))
+class SPIMock(object):
+    def __init__(self, methods=None, **kwargs):
+        self._create_methods(methods=methods, **kwargs)
+
+    def _create_methods(self, methods, **kwargs):
+        pass
 
     def __getattr__(self, name):
         if not name.startswith('__') and not name.endswith('__'):
@@ -72,23 +73,44 @@ class DatastoreMock(object):
         raise AttributeError("%r object has no attribute %r" % (self.__class__, name))
 
 
-class BaseDatastoreInterface(object):
-    def __init__(self, datastore_model, resource_model):
-        self._datastore_model = datastore_model
-        self._resource_model = resource_model
-        # TODO: accept a list of method names and generate method stubs
+class DatastoreMock(SPIMock):
+    def __init__(self, resource_model, **kwargs):
+        kwargs['resource_model'] = resource_model
+        super(DatastoreMock, self).__init__(**kwargs)
+
+    def _create_methods(self, methods, **kwargs):
+        for method in methods:
+            setattr(self, method, NDBMethod(code_name=method, **kwargs))
 
 
-class UniqueValue(ndb.Model):
-    pass
+class SearchMock(SPIMock):
+    def __init__(self, update_queue='test', **kwargs):
+        super(SearchMock, self).__init__(**kwargs)
+        self.update_queue = update_queue
+
+    def _create_methods(self, methods, **kwargs):
+        for method in methods:
+            setattr(self, method, SPIMethod(code_name=method, **kwargs))
 
 
-class NDBMethod(object):
-    def __init__(self, code_name, resource_name, uniques_value_model=UniqueValue, force_unique_parse=False):
+class SearchResults(object):
+    def __init__(self, results_count, results, cursor=None):
+        self.results_count = results_count
+        self.results = results
+        self.cursor = cursor
+
+
+class Result(object):
+    def __init__(self, uid):
+        # UID is the identifier for the search result. This will be used mainly to link to additional information about
+        # the result
+        self.uid = uid
+
+
+class SPIMethod(object):
+    def __init__(self, code_name, resource_name):
         self.code_name = code_name
         self.resource_name = resource_name
-        self.uniques_value_model = uniques_value_model
-        self.force_unique_parse = force_unique_parse
 
         self.pre_name = 'pre_{}'.format(self.code_name)
         self.post_name = 'post_{}'.format(self.code_name)
@@ -96,15 +118,44 @@ class NDBMethod(object):
         self.pre_signal = signal(self.pre_name)
         self.post_signal = signal(self.post_name)
 
-    def _transaction_receivers(self):
-        return bool(self.pre_signal.receivers) or bool(self.post_signal.recievers)
-
     @async
     def _trigger_hook(self, signal, **kwargs):
         if bool(signal.receivers):
             kwargs['hook_name'] = signal.name
             for receiver in signal.receivers_for(self):
                 yield receiver(self, **kwargs)
+
+    @async
+    def _internal_op(self, **kwargs):
+        raise NotImplementedError
+
+    @async
+    def __call__(self, **kwargs):
+        """
+        SPI methods are very simple. They simply emit signal which you can receive and act upon. By default
+        there are two signals: pre and post.
+
+        :param kwargs:
+        :return:
+        """
+        yield self._trigger_hook(signal=self.pre_signal, **kwargs)
+        result = yield self._internal_op(**kwargs)
+        yield self._trigger_hook(signal=self.post_signal, op_result=result, **kwargs)
+        raise ndb.Return(result)
+
+
+class UniqueValue(ndb.Model):
+    pass
+
+
+class NDBMethod(SPIMethod):
+    def __init__(self, uniques_value_model=UniqueValue, force_unique_parse=False, **kwargs):
+        super(NDBMethod, self).__init__(**kwargs)
+        self.uniques_value_model = uniques_value_model
+        self.force_unique_parse = force_unique_parse
+
+    def _transaction_receivers(self):
+        return bool(self.pre_signal.receivers) or bool(self.post_signal.recievers)
 
     def _build_unique_value_locks(self, uniques):
         """
@@ -196,10 +247,6 @@ class NDBMethod(object):
         """
         if uniques:
             yield ndb.delete_multi_async(uniques)
-
-    @async
-    def _internal_op(self, **kwargs):
-        raise NotImplementedError
 
     @async
     def __call__(self, **kwargs):
@@ -433,139 +480,3 @@ class NDBDatastore(object):
 
         modified = diff.changed()
         return modified
-
-    @staticmethod
-    def update_model(source, target, filtered_properties=None):
-        """
-        Update target model properties with the values from source.
-        Optional filter to update only specific properties.
-
-        :param source:
-        :param target:
-        :param filtered_properties:
-        :returns modified version of target:
-        """
-        source_dict = source.to_dict()
-
-        if filtered_properties:
-            modified_values = {}
-            for filtered_property in filtered_properties:
-                modified_values[filtered_property] = source_dict[filtered_property]
-        else:
-            modified_values = source_dict
-
-        if modified_values:
-            target.populate(**modified_values)
-            return target
-        else:
-            return False
-
-    @staticmethod
-    def _convert_ndb_key_to_string(datastore_key):
-        return datastore_key.urlsafe()
-
-    def _convert_string_to_ndb_key(self, datastore_key):
-        try:
-            parsed_key = ndb.Key(urlsafe=datastore_key)
-        except ProtocolBuffer.ProtocolBufferDecodeError:
-            raise ValueError(u'Specified key is not valid for NDB Datastore.')
-        else:
-            if parsed_key.kind() != self._datastore_model.__class__.__name__:
-                raise TypeError('Only "{}" keys are accepted by this datastore instance'.format(
-                    self._datastore_model.__class__.__name__))
-            return parsed_key
-
-    def parse_datastore_key(self, resource_uid):
-        """
-        Convert string to NDB Key.
-
-        :param resource_uid:
-        :returns datastore_key:
-        """
-        return self._convert_string_to_ndb_key(datastore_key=resource_uid)
-
-    @staticmethod
-    def _filter_unwanted_kwargs(kwargs, unwanted_keys):
-        for unwanted in unwanted_keys:
-            try:
-                del kwargs[unwanted]
-            except KeyError:
-                pass
-
-    def _convert_resource_to_datastore_model(self, resource):
-        """
-        Convert resource object into native ndb model. This is a very crude implementation. It is encouraged
-        that you override this in your interface definition to give you maximum flexibility when storing values.
-
-        This implementation is only present so that the interface works 'out of the box'.
-
-        NOTE: If you use either DateProperty or DateTimeProperty with 'auto_now_add' be very careful. This class
-        basically puts a new entity in the datastore each time you make an update. Because of this the
-        'auto_now_add' timestamp will be overwritten each time. To combat this, mark relevant fields as
-        immutable within your resource object so that we can pass the timestamp around without fear of it being
-        overwritten. The timestamp can then be written to the new entity without having to fetch the stored
-        data each time.
-
-        :param resource:
-        :returns ndb model:
-        """
-        if not isinstance(resource, self._resource_model):
-            raise TypeError(
-                'Only "{}" models are accepted by this datastore instance'.format(type(self._resource_model)))
-
-        datastore_model_kwargs = resource.as_dict()
-        self._filter_unwanted_kwargs(kwargs=datastore_model_kwargs,
-                                     unwanted_keys=self._unwanted_resource_kwargs)
-
-        if 'uid' in datastore_model_kwargs:
-            del datastore_model_kwargs['uid']
-        if resource.uid:
-            datastore_model_kwargs['key'] = self._convert_string_to_ndb_key(datastore_key=resource.uid)
-
-        # It is important that we don't accidentally overwrite auto set values in the datastore. Not very
-        # efficient so, you could write a bespoke implementation for your model.
-        for model_property in self._datastore_model._properties.iteritems():
-            property_instance = model_property[1]
-
-            prop_type = type(property_instance)
-
-            prop_name = property_instance._code_name
-            if prop_name in datastore_model_kwargs and (
-                            prop_type is ndb.model.DateTimeProperty or prop_type is ndb.model.DateProperty):
-                if property_instance._auto_now:
-                    del datastore_model_kwargs[prop_name]
-                if property_instance._auto_now_add and not datastore_model_kwargs[prop_name]:
-                    # We only want to remove an auto_now_add property if it is not currently set
-                    del datastore_model_kwargs[prop_name]
-            elif prop_name in datastore_model_kwargs and prop_type is ndb.model.KeyProperty and \
-                            datastore_model_kwargs[prop_name] is not None:
-                datastore_model_kwargs[prop_name] = self._convert_string_to_ndb_key(
-                    datastore_key=datastore_model_kwargs[prop_name])
-
-        return self._datastore_model(**datastore_model_kwargs)
-
-    def _convert_datastore_model_to_resource(self, datastore_model):
-        """
-        Convert native ndb model into resource object.
-
-        :param datastore_model:
-        :returns resource:
-        """
-        resource_kwargs = datastore_model.to_dict()
-        self._filter_unwanted_kwargs(kwargs=resource_kwargs, unwanted_keys=self._unwanted_resource_kwargs)
-
-        for model_property in datastore_model._properties.iteritems():
-            property_instance = model_property[1]
-
-            prop_type = type(property_instance)
-            if prop_type is ndb.model.ComputedProperty:
-                del resource_kwargs[property_instance._code_name]
-            elif prop_type is ndb.model.KeyProperty and resource_kwargs[
-                property_instance._code_name] is not None:
-                resource_kwargs[property_instance._code_name] = self._convert_ndb_key_to_string(
-                    datastore_key=resource_kwargs[property_instance._code_name])
-
-        return self._resource_model(**resource_kwargs)
-
-    def _transaction_log(self):
-        pass

@@ -22,7 +22,7 @@
 
 from blinker import signal
 from google.appengine.ext import deferred
-from .datastore import DatastoreMock
+from .spi import DatastoreMock
 from .search import SearchMock
 from .ramdisk import RamDisk, _hash
 import google.appengine.ext.ndb as ndb
