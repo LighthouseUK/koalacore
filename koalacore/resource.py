@@ -1564,6 +1564,10 @@ class Resource(ndb.Expando):
         )
 
 
+class ResourceMock(Resource):
+    pass
+
+
 class BaseResourceUID(object):
     def __init__(self, urlsafe=None, raw=None):
         if urlsafe is None and raw is None:

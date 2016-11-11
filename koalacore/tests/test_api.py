@@ -21,8 +21,7 @@ import unittest
 from blinker import signal
 from koalacore.api import parse_api_config
 from koalacore.resource import Resource, StringProperty, ResourceUIDProperty, ResourceUID, DateProperty, DateTimeProperty, TimeProperty
-from koalacore.spi import DatastoreMock
-from koalacore.search import SearchMock
+from koalacore.spi import DatastoreMock, SearchMock
 from google.appengine.ext import testbed
 from google.appengine.ext import deferred
 import google.appengine.ext.ndb as ndb

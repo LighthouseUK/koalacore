@@ -58,12 +58,25 @@ class UniqueValueRequired(ResourceException, ValueError):
 
     def __init__(self, errors, message=u'Unique resource values already exist in the datastore'):
         super(UniqueValueRequired, self).__init__(message)
-        self.errors = errors
 
 
-class SPIMock(object):
+class BaseSPI(object):
+    def __init__(self, resource_model, **kwargs):
+        self.resource_model = resource_model
+
+
+class SPIContainer(object):
+    def __init__(self, resource_model, resource_update_queue=None, search_index_update_queue=None, **kwargs):
+        # we need the resource model, but only for init; no point saving it as an attribute
+        self.resource_update_queue = resource_update_queue
+        self.search_index_update_queue = search_index_update_queue
+
+
+class SPIMock(BaseSPI):
     def __init__(self, methods=None, **kwargs):
-        self._create_methods(methods=methods, **kwargs)
+        super(SPIMock, self).__init__(**kwargs)
+        if methods is not None:
+            self._create_methods(methods=methods, **kwargs)
 
     def _create_methods(self, methods, **kwargs):
         pass
@@ -75,23 +88,53 @@ class SPIMock(object):
 
 
 class DatastoreMock(SPIMock):
-    def __init__(self, resource_model, **kwargs):
-        kwargs['resource_model'] = resource_model
-        super(DatastoreMock, self).__init__(**kwargs)
-
     def _create_methods(self, methods, **kwargs):
         for method in methods:
             setattr(self, method, NDBMethod(code_name=method, **kwargs))
 
 
 class SearchMock(SPIMock):
-    def __init__(self, update_queue='test', **kwargs):
-        super(SearchMock, self).__init__(**kwargs)
-        self.update_queue = update_queue
-
     def _create_methods(self, methods, **kwargs):
         for method in methods:
             setattr(self, method, SPIMethod(code_name=method, **kwargs))
+
+
+class GAESPI(SPIContainer):
+    def __init__(self, datastore_config=None, search_config=None, **kwargs):
+        super(GAESPI, self).__init__(**kwargs)
+        # Need the task queue to use for updates to search doc and resource model, if necessary
+        default_datastore_config = {
+            'type': DatastoreMock,
+            'resource_model': kwargs['resource_model'],
+        }
+
+        try:
+            default_datastore_config.update(datastore_config)
+        except (KeyError, TypeError):
+            pass
+
+        new_datastore_type = default_datastore_config['type']
+        del default_datastore_config['type']
+        self.datastore = new_datastore_type(**default_datastore_config)
+
+        # Update the default search config with the user supplied values and set them in the def
+        default_search_config = {
+            'type': SearchMock,
+            'resource_model': kwargs['resource_model'],
+            'result_model': Result,
+            'search_results_model': SearchResults,
+        }
+
+        try:
+            default_search_config.update(search_config)
+        except (KeyError, TypeError):
+            pass
+
+        new_search_index_type = default_search_config['type']
+        del default_search_config['type']
+        self.search_index = new_search_index_type(**default_search_config)
+
+        # TODO: methods to hook into datastore and create/update search docs
 
 
 class SearchResults(object):
@@ -109,7 +152,7 @@ class Result(object):
 
 
 class SPIMethod(object):
-    def __init__(self, code_name):
+    def __init__(self, code_name, **kwargs):
         self.code_name = code_name
 
         self.pre_name = 'pre_{}'.format(self.code_name)
@@ -426,7 +469,8 @@ class NDBDatastore(object):
 
     """
 
-    def __init__(self, resource_name, **kwargs):
+    def __init__(self, resource_model, **kwargs):
+        resource_name = resource_model.__name__
         self.insert = NDBInsert(resource_name=resource_name)
         self.get = NDBGet(resource_name=resource_name)
         self.update = NDBUpdate(resource_name=resource_name)
@@ -697,10 +741,13 @@ class SearchQuery(SearchMethod):
 
 class GAESearch(object):
 
-    def __init__(self, index_name, resource_model=None, result_model=Result, search_results_model=SearchResults):
+    def __init__(self, resource_model, index_name=None, result_model=Result, search_results_model=SearchResults):
+        if index_name is None:
+            index_name = resource_model.__name__
+
         self.index_name = index_name
 
-        self.search_index = Index(name=index_name)
+        self.search_index = Index(name=self.index_name)
         resource_repeated_properties = None
 
         if resource_model is not None:
