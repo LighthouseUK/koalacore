@@ -189,22 +189,76 @@ class BaseAPI(object):
             self.children = children
 
 
-class AsyncResourceAPI(BaseAPI):
-    def __init__(self, **kwargs):
+class AsyncResourceApi(BaseAPI):
+    def __init__(self, default_api_method_class=AsyncAPIMethod, **kwargs):
         """
         The only difference from the base class is that we automatically create async api methods based on the provided
         list of methods. The methods are set as attributes.
 
         :param kwargs:
         """
-        super(AsyncResourceAPI, self).__init__(**kwargs)
+        super(AsyncResourceApi, self).__init__(**kwargs)
 
         if self.methods is not None:
             for method in self.methods:
-                setattr(self, method, AsyncAPIMethod(code_name=method, parent_api=self))
+                setattr(self, method, default_api_method_class(code_name=method, parent_api=self))
 
 
-class Security(AsyncResourceAPI):
+class GaeApi(AsyncResourceApi):
+    def __init__(self, **kwargs):
+        """
+        The only difference from the parent class is that we automatically create ndb methods and setup search index
+        updating.
+
+        :param kwargs:
+        """
+        super(GaeApi, self).__init__(**kwargs)
+        # Attach hooks to the methods
+        signal('insert').connect(self._insert, sender=self)
+        signal('get').connect(self._get, sender=self)
+        signal('update').connect(self._update, sender=self)
+        signal('delete').connect(self._delete, sender=self)
+        signal('query').connect(self._query, sender=self)
+        signal('search').connect(self._search, sender=self)
+        # Add hooks to update search index
+        search_queue = self.spi.search_index.search_index_update_queue
+        signal('post_insert').connect(lambda *a, **k: deferred.defer(self._update_search_index, _queue=search_queue, **k), sender=self)
+        signal('post_update').connect(lambda *a, **k: deferred.defer(self._update_search_index, _queue=search_queue, **k), sender=self)
+        signal('post_delete').connect(lambda *a, **k: deferred.defer(self._delete_search_index, _queue=search_queue, **k), sender=self)
+
+    @staticmethod
+    def _insert(spi, **kwargs):
+        return spi.datastore.insert(**kwargs)
+
+    @staticmethod
+    def _get(spi, **kwargs):
+        return spi.datastore.get(**kwargs)
+
+    @staticmethod
+    def _update(spi, **kwargs):
+        return spi.datastore.update(**kwargs)
+
+    @staticmethod
+    def _delete(spi, **kwargs):
+        return spi.datastore.delete(**kwargs)
+
+    @staticmethod
+    def _query(spi, **kwargs):
+        return spi.datastore.query(**kwargs)
+
+    @staticmethod
+    def _search(spi, **kwargs):
+        return spi.search_index.search(**kwargs)
+
+    def _update_search_index(self, result, **kwargs):
+        resource = self.get(resource_uid=result).get_result()
+        self.spi.search_index.insert(search_doc=resource.to_search_doc(), **kwargs)
+
+    def _delete_search_index(self, result, **kwargs):
+        self.spi.search_index.delete(search_doc_uid=result, **kwargs)
+
+
+class Security(GaeApi):
     def __init__(self, valid_actions, pre_hook_names, **kwargs):
         # Init the inode and securityid apis. The default values will be ok here. We need to rely on the NDB datastore
         # because of the implementation. It's ok if the resources themselves are kept elsewhere.
@@ -267,7 +321,7 @@ SEARCH_METHODS = BASE_METHODS + ['search']
 GAE_METHODS = BASE_METHODS + ['query', 'search']
 
 
-def init_api(api_name, api_def, parent=None, default_api=AsyncResourceAPI, default_methods=GAE_METHODS,
+def init_api(api_name, api_def, parent=None, default_api=GaeApi, default_methods=GAE_METHODS,
              default_spi=GAESPI, resource_mock=ResourceMock, default_resource_update_queue='resource-update',
              default_search_update_queue='search-index-update'):
     try:
@@ -371,7 +425,7 @@ def compile_security_config(api_map, actions, pre_hook_names):
         pass
 
 
-def parse_api_config(api_definition, default_api=AsyncResourceAPI, default_methods=GAE_METHODS, koala_security=True):
+def parse_api_config(api_definition, default_api=GaeApi, default_methods=GAE_METHODS, koala_security=True):
     api = TopLevelAPI()
 
     for api_name, api_def in api_definition.iteritems():

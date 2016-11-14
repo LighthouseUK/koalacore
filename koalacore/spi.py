@@ -449,9 +449,9 @@ class NDBDelete(NDBMethod):
 
         result = yield resource_uid.raw.delete_async(**kwargs)
 
-        yield self._trigger_hook(signal=self.post_signal, op_result=result, **kwargs)
+        yield self._trigger_hook(signal=self.post_signal, op_result=resource_uid, **kwargs)
 
-        raise ndb.Return(result)
+        raise ndb.Return(resource_uid)
 
 
 class NDBDatastore(object):
