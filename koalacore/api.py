@@ -22,7 +22,7 @@
 
 from blinker import signal
 from google.appengine.ext import deferred
-from .spi import DatastoreMock, SearchMock, GAESPI
+from .spi import GAESPI, SPIContainer
 from .resource import Resource, ResourceMock
 from .ramdisk import RamDisk, _hash
 import google.appengine.ext.ndb as ndb
@@ -165,8 +165,27 @@ class AsyncAPIMethod(object):
         raise ndb.Return(result)
 
 
+def _configure_spi(spi_config, default_spi_config, resource_model=None):
+    try:
+        default_spi_config.update(spi_config)
+    except (KeyError, TypeError):
+        # Missing key or explicitly set to none
+        pass
+
+    spi_type = default_spi_config['type']
+    del default_spi_config['type']
+
+    try:
+        spi = spi_type(resource_model=resource_model, **default_spi_config)
+    except TypeError:
+        # The supplied type is not instantiable
+        return None
+    else:
+        return spi
+
+
 class BaseAPI(object):
-    def __init__(self, code_name, spi=None, methods=None, children=None, **kwargs):
+    def __init__(self, code_name, resource_model, spi_config=None, methods=None, children=None, default_spi_config=None, **kwargs):
         """
         code_name is the name of the API, taken from the api config.
 
@@ -175,18 +194,27 @@ class BaseAPI(object):
         methods is a list of strings representing the desired methods.
 
         :param code_name:
-        :param spi:
-        :param children:
+        :param resource_model:
+        :param spi_config:
         :param methods:
+        :param children:
+        :param default_spi:
+        :param default_resource_update_queue:
+        :param default_search_update_queue:
         """
         self.code_name = code_name
+        self.resource_model = resource_model
         self.methods = methods
-        self.spi = spi
+
+        self.spi = self._configure_spi(spi_config=spi_config, default_spi_config=default_spi_config,
+                                       resource_model=resource_model)
 
         if children is None:
             self.children = []
         else:
             self.children = children
+
+    _configure_spi = staticmethod(_configure_spi)
 
 
 class AsyncResourceApi(BaseAPI):
@@ -204,28 +232,40 @@ class AsyncResourceApi(BaseAPI):
                 setattr(self, method, default_api_method_class(code_name=method, parent_api=self))
 
 
+@async
 def _insert(spi, **kwargs):
-    return spi.datastore.insert(**kwargs)
+    result = yield spi.datastore.insert(**kwargs)
+    raise ndb.Return(result)
 
 
+@async
 def _get(spi, **kwargs):
-    return spi.datastore.get(**kwargs)
+    result = yield spi.datastore.get(**kwargs)
+    raise ndb.Return(result)
 
 
+@async
 def _update(spi, **kwargs):
-    return spi.datastore.update(**kwargs)
+    result = yield spi.datastore.update(**kwargs)
+    raise ndb.Return(result)
 
 
+@async
 def _delete(spi, **kwargs):
-    return spi.datastore.delete(**kwargs)
+    result = yield spi.datastore.delete(**kwargs)
+    raise ndb.Return(result)
 
 
+@async
 def _query(spi, **kwargs):
-    return spi.datastore.query(**kwargs)
+    result = yield spi.datastore.query(**kwargs)
+    raise ndb.Return(result)
 
 
+@async
 def _search(spi, **kwargs):
-    return spi.search_index.search(**kwargs)
+    result = yield spi.search_index.search(**kwargs)
+    raise ndb.Return(result)
 
 
 class GaeApi(AsyncResourceApi):
@@ -236,6 +276,11 @@ class GaeApi(AsyncResourceApi):
 
         :param kwargs:
         """
+        kwargs['default_spi_config'] = {
+            'type': GAESPI,
+            'resource_update_queue': 'resource-update',
+            'search_index_update_queue': 'search-index-update',
+        }
         super(GaeApi, self).__init__(**kwargs)
         # Attach hooks to the methods
         signal('insert').connect(_insert, sender=self)
@@ -322,39 +367,18 @@ GAE_METHODS = BASE_METHODS + ['query', 'search']
 
 
 def init_api(api_name, api_def, parent=None, default_api=GaeApi, default_methods=GAE_METHODS,
-             default_spi=GAESPI, resource_mock=ResourceMock, default_resource_update_queue='resource-update',
-             default_search_update_queue='search-index-update'):
+             resource_mock=ResourceMock):
     try:
         # sub apis should not be passed to the api constructor.
         sub_api_defs = api_def['sub_apis']
     except KeyError:
         sub_api_defs = None
-    try:
-        # sub apis should not be passed to the api constructor.
-        resource_model = api_def['resource_model']
-    except KeyError:
-        resource_model = resource_mock
-
-    default_spi_config = {
-        'type': default_spi,
-        'resource_model': resource_model,
-        'resource_update_queue': default_resource_update_queue,
-        'search_index_update_queue': default_search_update_queue,
-    }
-
-    try:
-        default_spi_config.update(api_def['spi'])
-    except (KeyError, TypeError):
-        # Missing key or explicitly set to none
-        pass
-
-    spi_type = default_spi_config['type']
-    del default_spi_config['type']
 
     default_api_config = {
         'code_name': api_name,
         'type': default_api,
         'methods': default_methods,
+        'resource_model': resource_mock,
     }
 
     # This could raise a number of exceptions. Rather than swallow them we will let them bubble to the top;
@@ -368,12 +392,6 @@ def init_api(api_name, api_def, parent=None, default_api=GaeApi, default_methods
     if sub_api_defs is not None:
         # We shouldn't pass the sub_apis to the api constructor.
         del default_api_config['sub_apis']
-
-    try:
-        default_api_config['spi'] = spi_type(**default_spi_config)
-    except TypeError:
-        # The supplied type is not instantiable
-        pass
 
     new_api = new_api_type(**default_api_config)
 

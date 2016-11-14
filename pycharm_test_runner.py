@@ -6,8 +6,8 @@ Subsequently the unittest will fail to load as the dependencies are missing.
 
 import unittest
 # from koalacore.tests.test_api import TestResource
-from koalacore.tests.test_api import TestAPIConfigParserDefaults
-# from koalacore.tests.test_api import *
+# from koalacore.tests.test_api import TestAPIConfigParserDefaults
+from koalacore.tests.test_api import *
 # from koalacore.tests.test_search import *
 
 # TODO: Import your tests so that they run automatically when we invoke this file from pycharm

@@ -81,10 +81,10 @@ class SPIMock(BaseSPI):
     def _create_methods(self, methods, **kwargs):
         pass
 
-    def __getattr__(self, name):
-        if not name.startswith('__') and not name.endswith('__'):
-            raise ndb.Return("'%s' was called" % name)
-        raise AttributeError("%r object has no attribute %r" % (self.__class__, name))
+    # def __getattr__(self, name):
+    #     if not name.startswith('__') and not name.endswith('__'):
+    #         raise ndb.Return("'%s' was called" % name)
+    #     raise AttributeError("%r object has no attribute %r" % (self.__class__, name))
 
 
 class DatastoreMock(SPIMock):
@@ -94,6 +94,10 @@ class DatastoreMock(SPIMock):
 
 
 class SearchMock(SPIMock):
+    def __init__(self, search_index_update_queue=None, **kwargs):
+        super(SearchMock, self).__init__(**kwargs)
+        self.search_index_update_queue = search_index_update_queue
+
     def _create_methods(self, methods, **kwargs):
         for method in methods:
             setattr(self, method, SPIMethod(code_name=method, **kwargs))
