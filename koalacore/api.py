@@ -204,6 +204,30 @@ class AsyncResourceApi(BaseAPI):
                 setattr(self, method, default_api_method_class(code_name=method, parent_api=self))
 
 
+def _insert(spi, **kwargs):
+    return spi.datastore.insert(**kwargs)
+
+
+def _get(spi, **kwargs):
+    return spi.datastore.get(**kwargs)
+
+
+def _update(spi, **kwargs):
+    return spi.datastore.update(**kwargs)
+
+
+def _delete(spi, **kwargs):
+    return spi.datastore.delete(**kwargs)
+
+
+def _query(spi, **kwargs):
+    return spi.datastore.query(**kwargs)
+
+
+def _search(spi, **kwargs):
+    return spi.search_index.search(**kwargs)
+
+
 class GaeApi(AsyncResourceApi):
     def __init__(self, **kwargs):
         """
@@ -214,41 +238,17 @@ class GaeApi(AsyncResourceApi):
         """
         super(GaeApi, self).__init__(**kwargs)
         # Attach hooks to the methods
-        signal('insert').connect(self._insert, sender=self)
-        signal('get').connect(self._get, sender=self)
-        signal('update').connect(self._update, sender=self)
-        signal('delete').connect(self._delete, sender=self)
-        signal('query').connect(self._query, sender=self)
-        signal('search').connect(self._search, sender=self)
+        signal('insert').connect(_insert, sender=self)
+        signal('get').connect(_get, sender=self)
+        signal('update').connect(_update, sender=self)
+        signal('delete').connect(_delete, sender=self)
+        signal('query').connect(_query, sender=self)
+        signal('search').connect(_search, sender=self)
         # Add hooks to update search index
         search_queue = self.spi.search_index.search_index_update_queue
         signal('post_insert').connect(lambda *a, **k: deferred.defer(self._update_search_index, _queue=search_queue, **k), sender=self)
         signal('post_update').connect(lambda *a, **k: deferred.defer(self._update_search_index, _queue=search_queue, **k), sender=self)
         signal('post_delete').connect(lambda *a, **k: deferred.defer(self._delete_search_index, _queue=search_queue, **k), sender=self)
-
-    @staticmethod
-    def _insert(spi, **kwargs):
-        return spi.datastore.insert(**kwargs)
-
-    @staticmethod
-    def _get(spi, **kwargs):
-        return spi.datastore.get(**kwargs)
-
-    @staticmethod
-    def _update(spi, **kwargs):
-        return spi.datastore.update(**kwargs)
-
-    @staticmethod
-    def _delete(spi, **kwargs):
-        return spi.datastore.delete(**kwargs)
-
-    @staticmethod
-    def _query(spi, **kwargs):
-        return spi.datastore.query(**kwargs)
-
-    @staticmethod
-    def _search(spi, **kwargs):
-        return spi.search_index.search(**kwargs)
 
     def _update_search_index(self, result, **kwargs):
         resource = self.get(resource_uid=result).get_result()
