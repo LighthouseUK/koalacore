@@ -1489,7 +1489,7 @@ class Resource(ndb.Expando):
     def uid(self):
         try:
             return ResourceUID(raw=self.key)
-        except AttributeError:
+        except (AttributeError, ValueError):
             return None
 
     @ndb.utils.positional(1)

@@ -143,13 +143,22 @@ class AsyncAPIMethod(object):
         if bool(hook.receivers):
             kwargs['hook_name'] = hook_name
             kwargs['action'] = self.action_name
-            for receiver in hook.receivers_for(self):
-                yield receiver(self, **kwargs)
+            results = []
+            for receiver in hook.receivers_for(self.parent_api):
+                result = yield receiver(self, **kwargs)
+                results.append(result)
+            raise ndb.Return(results)
+
+    def _reduce_hook_results(self, results):
+        if results is not None and results:
+            return results[0]
+        else:
+            return None
 
     @async
     def __call__(self, **kwargs):
         """
-        API methods are very simple. They simply emit signal which you can receive and act upon. By default there are
+        API methods are very simple. They simply emit signals which you can receive and act upon. By default there are
         three signals: pre, execute, and post.
 
         You can connect to them by specifying the sender as a parent api instance. Be careful though, if you
@@ -160,9 +169,13 @@ class AsyncAPIMethod(object):
         """
         yield self._trigger_hook(hook_name=self.pre_name, **kwargs)
         result = yield self._trigger_hook(hook_name=self.hook_name, spi=self.spi, **kwargs)
+        # Result could be a list, depending on how many hooks you have setup. These will all be passed to the post hook
+        # so that you can do further processing. However, callers of the API do not need these extra return values.
+        # We pass result to a parse function that by default simply returns the first element in the list. You can
+        # override this as necessary.
         yield self._trigger_hook(hook_name=self.post_name, result=result, **kwargs)
 
-        raise ndb.Return(result)
+        raise ndb.Return(self._reduce_hook_results(results=result))
 
 
 def _configure_spi(spi_config, default_spi_config, resource_model=None):
@@ -233,37 +246,37 @@ class AsyncResourceApi(BaseAPI):
 
 
 @async
-def _insert(spi, **kwargs):
+def _insert(sender, spi, **kwargs):
     result = yield spi.datastore.insert(**kwargs)
     raise ndb.Return(result)
 
 
 @async
-def _get(spi, **kwargs):
+def _get(sender, spi, **kwargs):
     result = yield spi.datastore.get(**kwargs)
     raise ndb.Return(result)
 
 
 @async
-def _update(spi, **kwargs):
+def _update(sender, spi, **kwargs):
     result = yield spi.datastore.update(**kwargs)
     raise ndb.Return(result)
 
 
 @async
-def _delete(spi, **kwargs):
+def _delete(sender, spi, **kwargs):
     result = yield spi.datastore.delete(**kwargs)
     raise ndb.Return(result)
 
 
 @async
-def _query(spi, **kwargs):
+def _query(sender, spi, **kwargs):
     result = yield spi.datastore.query(**kwargs)
     raise ndb.Return(result)
 
 
 @async
-def _search(spi, **kwargs):
+def _search(sender, spi, **kwargs):
     result = yield spi.search_index.search(**kwargs)
     raise ndb.Return(result)
 
@@ -279,7 +292,7 @@ class GaeApi(AsyncResourceApi):
         kwargs['default_spi_config'] = {
             'type': GAESPI,
             'resource_update_queue': 'resource-update',
-            'search_index_update_queue': 'search-index-update',
+            'search_update_queue': 'search-index-update',
         }
         super(GaeApi, self).__init__(**kwargs)
         # Attach hooks to the methods
@@ -290,7 +303,7 @@ class GaeApi(AsyncResourceApi):
         signal('query').connect(_query, sender=self)
         signal('search').connect(_search, sender=self)
         # Add hooks to update search index
-        search_queue = self.spi.search_index.search_index_update_queue
+        search_queue = self.spi.search_update_queue
         signal('post_insert').connect(lambda *a, **k: deferred.defer(self._update_search_index, _queue=search_queue, **k), sender=self)
         signal('post_update').connect(lambda *a, **k: deferred.defer(self._update_search_index, _queue=search_queue, **k), sender=self)
         signal('post_delete').connect(lambda *a, **k: deferred.defer(self._delete_search_index, _queue=search_queue, **k), sender=self)
@@ -348,14 +361,9 @@ class Security(GaeApi):
 
     @async
     def get_uid_and_check_permissions(self, sender, identity_uid, resource_object=None, resource_uid=None, **kwargs):
-        if resource_object is not None and resource_uid is not None:
-            raise ValueError('You must supply either a resource object or a resource uid')
-
         if resource_object:
-            if not resource_object.uid:
-                raise ValueError('Resource object does not have a valid UID')
-
-            resource_uid = resource_object.uid
+            if resource_object.uid:
+                resource_uid = resource_object.uid
 
         yield self.authorize(identity_uid=identity_uid, resource_uid=resource_uid, **kwargs)
 

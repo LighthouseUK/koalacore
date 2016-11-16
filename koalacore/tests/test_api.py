@@ -21,7 +21,7 @@ import unittest
 from blinker import signal
 from koalacore.api import parse_api_config
 from koalacore.resource import Resource, StringProperty, ResourceUIDProperty, ResourceUID, DateProperty, DateTimeProperty, TimeProperty
-from koalacore.spi import DatastoreMock, SearchMock
+from koalacore.spi import NDBDatastore, GAESearch
 from google.appengine.ext import testbed
 from google.appengine.ext import deferred
 import google.appengine.ext.ndb as ndb
@@ -158,6 +158,56 @@ class TestResource(unittest.TestCase):
         searchable = test.to_searchable_properties()
         retrieved = new_uid.get()
         retrieved.file_name = 'newfilename'
+        pass
+
+
+class TestGaeApi(unittest.TestCase):
+    def setUp(self):
+        self.testbed = testbed.Testbed()
+        self.testbed.activate()
+        self.testbed.init_datastore_v3_stub()
+        self.testbed.init_memcache_stub()
+        self.testbed.init_search_stub()
+        self.testbed.init_taskqueue_stub(root_path='./koalacore/tests')
+        self.task_queue = self.testbed.get_stub(testbed.TASKQUEUE_SERVICE_NAME)
+
+    def tearDown(self):
+        self.testbed.deactivate()
+
+    def build_api(self):
+        ndb_api_config = {
+            'companies': {
+                'strict_parent': False,
+                'resource_model': INode,
+                'spi_config': {
+                    'datastore_config': {
+                        'type': NDBDatastore,
+                    },
+                    'search_config': {
+                        'type': GAESearch,
+                    }
+                },
+                'sub_apis': {
+                    'users': {
+                        'strict_parent': True,
+                    },
+                    'entries': {
+                        'strict_parent': True,
+                        'sub_apis': {
+                            'results': {
+                                'strict_parent': True,
+                            }
+                        },
+                    }
+                },
+            }
+        }
+        return parse_api_config(api_definition=ndb_api_config)
+
+    def test_resource_init(self):
+        test_api = self.build_api()
+        test = INode(file_name='examplefilename', key_test=[ResourceUID(raw=ndb.Key(INodeResource, 'test1')), ResourceUID(raw=ndb.Key(INodeResource, 'test2'))])
+        new_test_uid = test_api.companies.insert(resource=test, identity_uid='thisisatestidentitykey').get_result()
         pass
 
 

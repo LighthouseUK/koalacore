@@ -63,28 +63,24 @@ class UniqueValueRequired(ResourceException, ValueError):
 class BaseSPI(object):
     def __init__(self, resource_model, **kwargs):
         self.resource_model = resource_model
+        self.resource_name = resource_model.__name__
 
 
 class SPIContainer(object):
-    def __init__(self, resource_model, resource_update_queue=None, search_index_update_queue=None, **kwargs):
+    def __init__(self, resource_model, resource_update_queue=None, search_update_queue=None, **kwargs):
         # we need the resource model, but only for init; no point saving it as an attribute
         self.resource_update_queue = resource_update_queue
-        self.search_index_update_queue = search_index_update_queue
+        self.search_update_queue = search_update_queue
 
 
 class SPIMock(BaseSPI):
     def __init__(self, methods=None, **kwargs):
         super(SPIMock, self).__init__(**kwargs)
         if methods is not None:
-            self._create_methods(methods=methods, **kwargs)
+            self._create_methods(methods=methods, resource_name=self.resource_name, **kwargs)
 
     def _create_methods(self, methods, **kwargs):
         pass
-
-    # def __getattr__(self, name):
-    #     if not name.startswith('__') and not name.endswith('__'):
-    #         raise ndb.Return("'%s' was called" % name)
-    #     raise AttributeError("%r object has no attribute %r" % (self.__class__, name))
 
 
 class DatastoreMock(SPIMock):
@@ -94,10 +90,6 @@ class DatastoreMock(SPIMock):
 
 
 class SearchMock(SPIMock):
-    def __init__(self, search_index_update_queue=None, **kwargs):
-        super(SearchMock, self).__init__(**kwargs)
-        self.search_index_update_queue = search_index_update_queue
-
     def _create_methods(self, methods, **kwargs):
         for method in methods:
             setattr(self, method, SPIMethod(code_name=method, **kwargs))
@@ -138,8 +130,6 @@ class GAESPI(SPIContainer):
         del default_search_config['type']
         self.search_index = new_search_index_type(**default_search_config)
 
-        # TODO: methods to hook into datastore and create/update search docs
-
 
 class SearchResults(object):
     def __init__(self, results_count, results, cursor=None):
@@ -156,20 +146,23 @@ class Result(object):
 
 
 class SPIMethod(object):
-    def __init__(self, code_name, **kwargs):
+    def __init__(self, code_name, resource_name, **kwargs):
         self.code_name = code_name
+        self.resource_name = resource_name
+        self._create_hooks(resource_name=resource_name, code_name=code_name)
 
-        self.pre_name = 'pre_{}'.format(self.code_name)
-        self.post_name = 'post_{}'.format(self.code_name)
+    def _create_hooks(self, resource_name, code_name):
+        self.pre_name = 'pre_{}_{}'.format(resource_name, code_name)
+        self.post_name = 'post_{}_{}'.format(resource_name, code_name)
 
         self.pre_signal = signal(self.pre_name)
         self.post_signal = signal(self.post_name)
 
     @async
-    def _trigger_hook(self, signal, **kwargs):
-        if bool(signal.receivers):
-            kwargs['hook_name'] = signal.name
-            for receiver in signal.receivers_for(self):
+    def _trigger_hook(self, signal_name, **kwargs):
+        if bool(signal_name.receivers):
+            kwargs['hook_name'] = signal_name.name
+            for receiver in signal_name.receivers_for(self):
                 yield receiver(self, **kwargs)
 
     @async
@@ -185,9 +178,9 @@ class SPIMethod(object):
         :param kwargs:
         :return:
         """
-        yield self._trigger_hook(signal=self.pre_signal, **kwargs)
+        yield self._trigger_hook(signal_name=self.pre_signal, **kwargs)
         result = yield self._internal_op(**kwargs)
-        yield self._trigger_hook(signal=self.post_signal, op_result=result, **kwargs)
+        yield self._trigger_hook(signal_name=self.post_signal, op_result=result, **kwargs)
         raise ndb.Return(result)
 
 
@@ -196,14 +189,15 @@ class UniqueValue(ndb.Model):
 
 
 class NDBMethod(SPIMethod):
-    def __init__(self, resource_name, uniques_value_model=UniqueValue, force_unique_parse=False, **kwargs):
+    def __init__(self, uniques_value_model=UniqueValue, force_unique_parse=False, **kwargs):
         super(NDBMethod, self).__init__(**kwargs)
-        self.resource_name = resource_name
         self.uniques_value_model = uniques_value_model
         self.force_unique_parse = force_unique_parse
+        self._internal_op_async = async(self._internal_op)
+        self._internal_op_async_transactional = ndb.transactional_async(self._internal_op)
 
     def _transaction_receivers(self):
-        return bool(self.pre_signal.receivers) or bool(self.post_signal.recievers)
+        return bool(self.pre_signal.receivers) or bool(self.post_signal.receivers)
 
     def _build_unique_value_locks(self, uniques):
         """
@@ -296,6 +290,20 @@ class NDBMethod(SPIMethod):
         if uniques:
             yield ndb.delete_multi_async(uniques)
 
+    def _parse_context_options(self, config_input):
+        acceptable = {
+            'deadline': None,
+            'read_policy': None,
+            'force_writes': None,
+            'use_cache': None,
+            'use_memcache': None,
+            'use_datastore': None,
+            'memcache_timeout': None,
+            'max_memcache_items': None,
+        }
+        matched_keys = config_input.viewkeys() & acceptable.viewkeys()
+        return {k: v for k, v in config_input.iteritems() if k in matched_keys}
+
     @async
     def __call__(self, **kwargs):
         """
@@ -315,12 +323,13 @@ class NDBMethod(SPIMethod):
                 # Pre-check the uniques before setting up a transaction
                 self._check_unique_locks(uniques=uniques)
 
+        kwargs['uniques'] = uniques
+        kwargs['old_uniques'] = old_uniques
+
         if self._transaction_receivers() or uniques:
-            result = yield ndb.transaction_async(lambda: self._internal_op(uniques=uniques,
-                                                                           old_uniques=old_uniques,
-                                                                           **kwargs))
+            result = yield self._internal_op_async_transactional(**kwargs)
         else:
-            result = yield self._internal_op(**kwargs)
+            result = yield self._internal_op_async(**kwargs)
 
         raise ndb.Return(result)
 
@@ -346,17 +355,18 @@ class NDBInsert(NDBMethod):
         :returns future (key for the inserted entity):
         """
         kwargs['resource'] = resource
-        yield self._trigger_hook(signal=self.pre_signal, **kwargs)
+        yield self._trigger_hook(signal_name=self.pre_signal, **kwargs)
 
         # This might raise an exception, but it doesn't return a value. If uniques are supplied then we are
         # automatically in a transaction
         if uniques:
             yield self._create_unique_locks(uniques=uniques)
 
-        result = yield resource.put_async(**kwargs)
+        context_config = self._parse_context_options(kwargs)
+        result = yield resource.put_async(**context_config)
         resource_uid = ResourceUID(raw=result)
 
-        yield self._trigger_hook(signal=self.post_signal, op_result=resource_uid, **kwargs)
+        yield self._trigger_hook(signal_name=self.post_signal, op_result=resource_uid, **kwargs)
 
         raise ndb.Return(resource_uid)
 
@@ -379,11 +389,11 @@ class NDBGet(NDBMethod):
         :returns future (key for the inserted entity):
         """
         kwargs['resource_uid'] = resource_uid
-        yield self._trigger_hook(signal=self.pre_signal, **kwargs)
+        yield self._trigger_hook(signal_name=self.pre_signal, **kwargs)
 
         result = yield resource_uid.raw.get_async(**kwargs)
 
-        yield self._trigger_hook(signal=self.post_signal, op_result=result, **kwargs)
+        yield self._trigger_hook(signal_name=self.post_signal, op_result=result, **kwargs)
 
         raise ndb.Return(result)
 
@@ -409,7 +419,7 @@ class NDBUpdate(NDBMethod):
         :returns future (key for the inserted entity):
         """
         kwargs['resource'] = resource
-        yield self._trigger_hook(signal=self.pre_signal, **kwargs)
+        yield self._trigger_hook(signal_name=self.pre_signal, **kwargs)
 
         # This might raise an exception, but it doesn't return a value. If uniques are supplied then we are
         # automatically in a transaction
@@ -424,7 +434,7 @@ class NDBUpdate(NDBMethod):
         result = yield resource.put_async(**kwargs)
         resource_uid = ResourceUID(raw=result)
 
-        yield self._trigger_hook(signal=self.post_signal, op_result=resource_uid, **kwargs)
+        yield self._trigger_hook(signal_name=self.post_signal, op_result=resource_uid, **kwargs)
 
         raise ndb.Return(resource_uid)
 
@@ -446,14 +456,14 @@ class NDBDelete(NDBMethod):
         :param kwargs:
         """
         kwargs['resource_uid'] = resource_uid
-        yield self._trigger_hook(signal=self.pre_signal, **kwargs)
+        yield self._trigger_hook(signal_name=self.pre_signal, **kwargs)
 
         if uniques:
             yield self._delete_unique_locks(uniques=uniques)
 
         result = yield resource_uid.raw.delete_async(**kwargs)
 
-        yield self._trigger_hook(signal=self.post_signal, op_result=resource_uid, **kwargs)
+        yield self._trigger_hook(signal_name=self.post_signal, op_result=resource_uid, **kwargs)
 
         raise ndb.Return(resource_uid)
 
@@ -524,6 +534,13 @@ class SearchMethod(SPIMethod):
         super(SearchMethod, self).__init__(**kwargs)
         self.search_index = search_index
 
+    def _create_hooks(self, resource_name, code_name):
+        self.pre_name = 'pre_{}_search_{}'.format(resource_name, code_name)
+        self.post_name = 'post_{}_search_{}'.format(resource_name, code_name)
+
+        self.pre_signal = signal(self.pre_name)
+        self.post_signal = signal(self.post_name)
+
     @async
     def __call__(self, **kwargs):
         """
@@ -533,9 +550,9 @@ class SearchMethod(SPIMethod):
         :param kwargs:
         :return:
         """
-        yield self._trigger_hook(signal=self.pre_signal, **kwargs)
+        yield self._trigger_hook(signal_name=self.pre_signal, **kwargs)
         result = yield self._internal_op(**kwargs)
-        yield self._trigger_hook(signal=self.post_signal, op_result=result, **kwargs)
+        yield self._trigger_hook(signal_name=self.post_signal, op_result=result, **kwargs)
         raise ndb.Return(result)
 
 
@@ -608,6 +625,7 @@ class SearchDelete(SearchMethod):
 
 class SearchQuery(SearchMethod):
     def __init__(self, repeated_properties=None, result_model=Result, search_results_model=SearchResults, **kwargs):
+        kwargs['code_name'] = 'search'
         super(SearchQuery, self).__init__(**kwargs)
         self.repeated_properties = repeated_properties
         self.result_model = result_model
@@ -745,9 +763,11 @@ class SearchQuery(SearchMethod):
 
 class GAESearch(object):
 
-    def __init__(self, resource_model, index_name=None, result_model=Result, search_results_model=SearchResults):
+    def __init__(self, resource_model, index_name=None, result_model=Result, search_results_model=SearchResults, **kwargs):
         if index_name is None:
             index_name = resource_model.__name__
+
+        resource_name = resource_model.__name__
 
         self.index_name = index_name
 
@@ -755,14 +775,15 @@ class GAESearch(object):
         resource_repeated_properties = None
 
         if resource_model is not None:
-            resource_repeated_properties = set(resource_property._code_name for resource_property in resource_model._properties if resource_property._repeated)
+            resource_repeated_properties = set(resource_property._code_name for short_name, resource_property in resource_model._properties.iteritems() if resource_property._repeated)
 
-        self.insert = SearchInsert(search_index=self.search_index)
-        self.get = SearchGet(search_index=self.search_index)
-        self.update = SearchUpdate(search_index=self.search_index)
-        self.delete = SearchDelete(search_index=self.search_index)
+        self.insert = SearchInsert(search_index=self.search_index, resource_name=resource_name)
+        self.get = SearchGet(search_index=self.search_index, resource_name=resource_name)
+        self.update = SearchUpdate(search_index=self.search_index, resource_name=resource_name)
+        self.delete = SearchDelete(search_index=self.search_index, resource_name=resource_name)
         # The main method!
         self.search = SearchQuery(search_index=self.search_index,
                                   repeated_properties=resource_repeated_properties,
                                   result_model=result_model,
-                                  search_results_model=search_results_model)
+                                  search_results_model=search_results_model,
+                                  resource_name=resource_name)
