@@ -301,8 +301,7 @@ class NDBMethod(SPIMethod):
             'memcache_timeout': None,
             'max_memcache_items': None,
         }
-        matched_keys = config_input.viewkeys() & acceptable.viewkeys()
-        return {k: v for k, v in config_input.iteritems() if k in matched_keys}
+        return {k: config_input[k] for k in config_input.viewkeys() & acceptable.viewkeys()}
 
     @async
     def __call__(self, **kwargs):

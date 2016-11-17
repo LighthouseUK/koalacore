@@ -207,7 +207,7 @@ class TestGaeApi(unittest.TestCase):
     def test_resource_init(self):
         test_api = self.build_api()
         test = INode(file_name='examplefilename', key_test=[ResourceUID(raw=ndb.Key(INodeResource, 'test1')), ResourceUID(raw=ndb.Key(INodeResource, 'test2'))])
-        new_test_uid = test_api.companies.insert(resource=test, identity_uid='thisisatestidentitykey').get_result()
+        new_test_uid = test_api.companies.insert(resource=test, identity_uid='thisisatestidentitykey', use_cache=False, use_memcache=False).get_result()
         pass
 
 
