@@ -26,6 +26,7 @@ from google.appengine.ext import testbed
 from google.appengine.ext import deferred
 import google.appengine.ext.ndb as ndb
 import copy
+from google.appengine.datastore import datastore_stub_util  # noqa
 
 __author__ = 'Matt Badger'
 
@@ -35,7 +36,7 @@ __author__ = 'Matt Badger'
 
 
 class INodeResource(Resource):
-    file_name = StringProperty('fn', verbose_name='File Name')
+    file_name_example = StringProperty('fne', verbose_name='File Name Example')
     # TODO: store owner (user), owner group(s) [list]
     # TODO: store permissions for owner, group, global
     # TODO: store additional ACL rules
@@ -165,11 +166,13 @@ class TestGaeApi(unittest.TestCase):
     def setUp(self):
         self.testbed = testbed.Testbed()
         self.testbed.activate()
-        self.testbed.init_datastore_v3_stub()
+        self.policy = datastore_stub_util.PseudoRandomHRConsistencyPolicy(probability=0)
+        self.testbed.init_datastore_v3_stub(consistency_policy=self.policy)
         self.testbed.init_memcache_stub()
         self.testbed.init_search_stub()
         self.testbed.init_taskqueue_stub(root_path='./koalacore/tests')
         self.task_queue = self.testbed.get_stub(testbed.TASKQUEUE_SERVICE_NAME)
+        ndb.get_context().clear_cache()
 
     def tearDown(self):
         self.testbed.deactivate()
@@ -207,7 +210,13 @@ class TestGaeApi(unittest.TestCase):
     def test_resource_init(self):
         test_api = self.build_api()
         test = INode(file_name='examplefilename', key_test=[ResourceUID(raw=ndb.Key(INodeResource, 'test1')), ResourceUID(raw=ndb.Key(INodeResource, 'test2'))])
-        new_test_uid = test_api.companies.insert(resource=test, identity_uid='thisisatestidentitykey', use_cache=False, use_memcache=False).get_result()
+
+        # Test context config
+        # new_test_uid = test_api.companies.insert(resource=test, identity_uid='thisisatestidentitykey', use_cache=False, use_memcache=False).get_result()
+
+        new_test_uid = test_api.companies.insert(resource=test, identity_uid='thisisatestidentitykey').get_result()
+        new_test_uid2 = test_api.companies.insert(resource=test, identity_uid='thisisatestidentitykey').get_result()
+        # TODO: Test that nothing is partially committed e.g. unique values
         pass
 
 

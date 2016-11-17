@@ -188,13 +188,22 @@ class UniqueValue(ndb.Model):
     pass
 
 
+@ndb.transactional_tasklet(xg=True)
+def test(example=None):
+    return example
+
+
 class NDBMethod(SPIMethod):
-    def __init__(self, uniques_value_model=UniqueValue, force_unique_parse=False, **kwargs):
+    def __init__(self, uniques_value_model=UniqueValue, force_unique_parse=False, transaction_config=None, **kwargs):
         super(NDBMethod, self).__init__(**kwargs)
+        if transaction_config is None:
+            transaction_config = {
+                'xg': True
+            }
         self.uniques_value_model = uniques_value_model
         self.force_unique_parse = force_unique_parse
         self._internal_op_async = async(self._internal_op)
-        self._internal_op_async_transactional = ndb.transactional_async(self._internal_op)
+        self._internal_op_async_transactional = ndb.transactional_tasklet(**transaction_config)(self._internal_op)
 
     def _transaction_receivers(self):
         return bool(self.pre_signal.receivers) or bool(self.post_signal.receivers)
@@ -234,8 +243,10 @@ class NDBMethod(SPIMethod):
                     except KeyError:
                         # There is no old value
                         pass
-
-        return self._build_unique_value_locks(uniques=uniques), old_values if uniques else None, None
+        if uniques:
+            return self._build_unique_value_locks(uniques=uniques), old_values
+        else:
+            return None, None
 
     @async
     def _check_unique_locks(self, uniques):

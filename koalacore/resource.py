@@ -1416,7 +1416,7 @@ class LocalStructuredProperty(_StructuredGetForDictMixin, BlobProperty):
 
 
 class Resource(ndb.Expando):
-    _uniques = None
+    _uniques = []
     _default_indexed = False
 
     def __init__(self, *args, **kwargs):
