@@ -336,10 +336,12 @@ class NDBMethod(SPIMethod):
         kwargs['uniques'] = uniques
         kwargs['old_uniques'] = old_uniques
 
+        context_config = self._parse_context_options(kwargs)
+
         if self._transaction_receivers() or uniques:
-            result = yield self._internal_op_async_transactional(**kwargs)
+            result = yield self._internal_op_async_transactional(context_config=context_config, **kwargs)
         else:
-            result = yield self._internal_op_async(**kwargs)
+            result = yield self._internal_op_async(context_config=context_config, **kwargs)
 
         raise ndb.Return(result)
 
@@ -350,7 +352,7 @@ class NDBInsert(NDBMethod):
         kwargs['force_unique_parse'] = True
         super(NDBInsert, self).__init__(**kwargs)
 
-    def _internal_op(self, resource, uniques, **kwargs):
+    def _internal_op(self, resource, uniques, context_config, **kwargs):
         """
         Insert model into the ndb datastore. Everything in here should be able to be executed within an NDB
         transaction -- there should be no processing except for the NDB ops. This applies to any connected
@@ -372,7 +374,6 @@ class NDBInsert(NDBMethod):
         if uniques:
             yield self._create_unique_locks(uniques=uniques)
 
-        context_config = self._parse_context_options(kwargs)
         result = yield resource.put_async(**context_config)
         resource_uid = ResourceUID(raw=result)
 
@@ -387,7 +388,7 @@ class NDBGet(NDBMethod):
         kwargs['force_unique_parse'] = False
         super(NDBGet, self).__init__(**kwargs)
 
-    def _internal_op(self, resource_uid, **kwargs):
+    def _internal_op(self, resource_uid, context_config, **kwargs):
         """
         Get model from the ndb datastore. Everything in here should be able to be executed within an NDB
         transaction -- there should be no processing except for the NDB ops. This applies to any connected
@@ -401,7 +402,7 @@ class NDBGet(NDBMethod):
         kwargs['resource_uid'] = resource_uid
         yield self._trigger_hook(signal_name=self.pre_signal, **kwargs)
 
-        result = yield resource_uid.raw.get_async(**kwargs)
+        result = yield resource_uid.raw.get_async(**context_config)
 
         yield self._trigger_hook(signal_name=self.post_signal, op_result=result, **kwargs)
 
@@ -414,7 +415,7 @@ class NDBUpdate(NDBMethod):
         kwargs['force_unique_parse'] = False
         super(NDBUpdate, self).__init__(**kwargs)
 
-    def _internal_op(self, resource, uniques, old_uniques, **kwargs):
+    def _internal_op(self, resource, uniques, old_uniques, context_config, **kwargs):
         """
         Update model in the ndb datastore. Everything in here should be able to be executed within an NDB
         transaction -- there should be no processing except for the NDB ops. This applies to any connected
@@ -441,7 +442,7 @@ class NDBUpdate(NDBMethod):
                 # this should probably be done via the task queue -- it doesn't need to be real time
                 yield self._delete_unique_locks(uniques=old_uniques)
 
-        result = yield resource.put_async(**kwargs)
+        result = yield resource.put_async(**context_config)
         resource_uid = ResourceUID(raw=result)
 
         yield self._trigger_hook(signal_name=self.post_signal, op_result=resource_uid, **kwargs)
@@ -455,7 +456,7 @@ class NDBDelete(NDBMethod):
         kwargs['force_unique_parse'] = True
         super(NDBDelete, self).__init__(**kwargs)
 
-    def _internal_op(self, resource_uid, uniques, **kwargs):
+    def _internal_op(self, resource_uid, uniques, context_config, **kwargs):
         """
         Delete model from the ndb datastore. Everything in here should be able to be executed within an NDB
         transaction -- there should be no processing except for the NDB ops. This applies to any connected
@@ -471,7 +472,7 @@ class NDBDelete(NDBMethod):
         if uniques:
             yield self._delete_unique_locks(uniques=uniques)
 
-        result = yield resource_uid.raw.delete_async(**kwargs)
+        result = yield resource_uid.raw.delete_async(**context_config)
 
         yield self._trigger_hook(signal_name=self.post_signal, op_result=resource_uid, **kwargs)
 

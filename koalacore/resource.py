@@ -1595,6 +1595,22 @@ class BaseResourceUID(object):
     def __unicode__(self):
         return unicode(self.__str__(), 'utf-8')
 
+    def __eq__(self, other):
+        """Override the default Equals behavior"""
+        if isinstance(other, self.__class__):
+            return self.raw == other.raw
+        return NotImplemented
+
+    def __ne__(self, other):
+        """Define a non-equality test"""
+        if isinstance(other, self.__class__):
+            return not self.__eq__(other=other)
+        return NotImplemented
+
+    def __hash__(self):
+        """Override the default hash behavior (that returns the id or the object)"""
+        return self.raw.__hash__()
+
 
 class ResourceUID(BaseResourceUID):
     """
