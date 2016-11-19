@@ -361,7 +361,8 @@ class TestGaeApi(unittest.TestCase):
         self.testbed.init_datastore_v3_stub(consistency_policy=self.policy)
         self.testbed.init_memcache_stub()
         self.testbed.init_search_stub()
-        self.testbed.init_taskqueue_stub(root_path='./koalacore/tests', auto_task_running=True)
+        # self.testbed.init_taskqueue_stub(root_path='./koalacore/tests', auto_task_running=True)
+        self.testbed.init_taskqueue_stub(root_path='./koalacore/tests')
         self.task_queue = self.testbed.get_stub(testbed.TASKQUEUE_SERVICE_NAME)
         ndb.get_context().clear_cache()
 
@@ -407,6 +408,8 @@ class TestGaeApi(unittest.TestCase):
         result = result_future.get_result()
 
         self.assertIsInstance(result, ResourceUID, u'Expected instance of ResourceUID')
+
+        # TODO: try pickling the SPI, SPImethods and see what breaks
 
         tasks = self.task_queue.get_filtered_tasks()
         while tasks:

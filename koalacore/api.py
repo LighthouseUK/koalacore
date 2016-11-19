@@ -168,14 +168,15 @@ class AsyncAPIMethod(object):
         :return:
         """
         yield self._trigger_hook(hook_name=self.pre_name, **kwargs)
-        result = yield self._trigger_hook(hook_name=self.hook_name, spi=self.spi, **kwargs)
+        results = yield self._trigger_hook(hook_name=self.hook_name, spi=self.spi, **kwargs)
+        main_result = self._reduce_hook_results(results=results)
         # Result could be a list, depending on how many hooks you have setup. These will all be passed to the post hook
         # so that you can do further processing. However, callers of the API do not need these extra return values.
         # We pass result to a parse function that by default simply returns the first element in the list. You can
         # override this as necessary.
-        yield self._trigger_hook(hook_name=self.post_name, result=result, **kwargs)
+        yield self._trigger_hook(hook_name=self.post_name, result=main_result, raw_result=results, **kwargs)
 
-        raise ndb.Return(self._reduce_hook_results(results=result))
+        raise ndb.Return(main_result)
 
 
 def _configure_spi(spi_config, default_spi_config, resource_model=None):
@@ -305,9 +306,18 @@ class GaeApi(AsyncResourceApi):
         signal('search').connect(_search, sender=self)
         # Add hooks to update search index
         search_queue = self.spi.search_update_queue
-        signal('post_insert').connect(lambda *a, **k: deferred.defer(self._update_search_index, _queue=search_queue, **k), sender=self)
-        signal('post_update').connect(lambda *a, **k: deferred.defer(self._update_search_index, _queue=search_queue, **k), sender=self)
-        signal('post_delete').connect(lambda *a, **k: deferred.defer(self._delete_search_index, _queue=search_queue, **k), sender=self)
+        # TODO: can't pickle the spi classes because of instance methods. Possibly add __getstate__ and __setstate__
+        # TODO: possibly use copy_reg to define methods used for pickling API/SPI methods
+        # the API methods work because they use signals to connect the internal op methods instead of being customized
+        # at run time. Potentially solve everything by converting the SPI methods to do the same thing? They could all
+        # share a base class? They are fundamentally similar; we're just providing an abstraction over the internal
+        # workings.
+        signal('post_insert').connect(self._test_hook, sender=self)
+        signal('post_update').connect(lambda **k: deferred.defer(self._update_search_index, _queue=search_queue, **k), sender=self)
+        signal('post_delete').connect(lambda **k: deferred.defer(self._delete_search_index, _queue=search_queue, **k), sender=self)
+
+    def _test_hook(self, sender, result, **kwargs):
+        deferred.defer(self._update_search_index, _queue=self.spi.search_update_queue, result=result)
 
     def _update_search_index(self, result, **kwargs):
         resource = self.get(resource_uid=result).get_result()
