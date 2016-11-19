@@ -244,7 +244,7 @@ class NDBMethod(SPIMethod):
                         # There is no old value
                         pass
         if uniques:
-            return self._build_unique_value_locks(uniques=uniques), old_values
+            return self._build_unique_value_locks(uniques=uniques), self._build_unique_value_locks(uniques=old_values)
         else:
             return None, None
 
@@ -329,7 +329,7 @@ class NDBMethod(SPIMethod):
             uniques = None
             old_uniques = None
         else:
-            if uniques:
+            if uniques and not self.force_unique_parse:
                 # Pre-check the uniques before setting up a transaction
                 self._check_unique_locks(uniques=uniques)
 
@@ -477,6 +477,21 @@ class NDBDelete(NDBMethod):
         yield self._trigger_hook(signal_name=self.post_signal, op_result=resource_uid, **kwargs)
 
         raise ndb.Return(resource_uid)
+
+    @async
+    def __call__(self, resource_uid, **kwargs):
+        """
+        We need to load the resource before we can delete it. Here we simply yield the resource and from NDB and add it
+        to kwargs before calling super
+
+        :param kwargs:
+        :return:
+        """
+        context_config = self._parse_context_options(kwargs)
+        kwargs['resource_uid'] = resource_uid
+        kwargs['resource'] = yield resource_uid.raw.get_async(**context_config)
+        result = yield super(NDBDelete, self).__call__(**kwargs)
+        raise ndb.Return(result)
 
 
 class NDBDatastore(object):
