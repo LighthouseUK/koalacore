@@ -289,6 +289,7 @@ class GaeApi(AsyncResourceApi):
 
         :param kwargs:
         """
+        # TODO: add system_identity_uid to the config
         kwargs['default_spi_config'] = {
             'type': GAESPI,
             'resource_update_queue': 'resource-update',
@@ -310,10 +311,10 @@ class GaeApi(AsyncResourceApi):
 
     def _update_search_index(self, result, **kwargs):
         resource = self.get(resource_uid=result).get_result()
-        self.spi.search_index.insert(search_doc=resource.to_search_doc(), **kwargs)
+        self.spi.search_index.insert(resource=resource.to_search_doc(), identity_uid='systemidentitykey', **kwargs)
 
     def _delete_search_index(self, result, **kwargs):
-        self.spi.search_index.delete(search_doc_uid=result, **kwargs)
+        self.spi.search_index.delete(resource_uid=result, identity_uid='systemidentitykey', **kwargs)
 
 
 class Security(GaeApi):

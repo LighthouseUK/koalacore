@@ -408,14 +408,14 @@ class TestGaeApi(unittest.TestCase):
 
         self.assertIsInstance(result, ResourceUID, u'Expected instance of ResourceUID')
 
-        # tasks = self.task_queue.get_filtered_tasks()
-        # while tasks:
-        #     tasks = self.task_queue.get_filtered_tasks()
-        #
-        # search_result_future = test_api.companies.search(query_string='file_name: {}'.format(test_resource.file_name))
-        # search_result = search_result_future.get_result()
-        # self.assertEqual(search_result.results_count, 1, u'Query returned incorrect count')
-        # self.assertEqual(len(search_result.results), 1, u'Query returned incorrect number of results')
+        tasks = self.task_queue.get_filtered_tasks()
+        while tasks:
+            tasks = self.task_queue.get_filtered_tasks()
+
+        search_result_future = test_api.companies.search(query_string='file_name: {}'.format(test_resource.file_name))
+        search_result = search_result_future.get_result()
+        self.assertEqual(search_result.results_count, 1, u'Query returned incorrect count')
+        self.assertEqual(len(search_result.results), 1, u'Query returned incorrect number of results')
 
     def test_insert_resource_unique_colission(self):
         test_api = self.build_api()

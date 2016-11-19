@@ -587,15 +587,18 @@ class SearchInsert(SearchMethod):
         kwargs['code_name'] = 'insert'
         super(SearchInsert, self).__init__(**kwargs)
 
-    def _internal_op(self, search_doc, **kwargs):
+    def _internal_op(self, resource, **kwargs):
         """
         Insert search_doc into the Search index.
 
-        :param search_doc:
+        Resource is actually the search doc; resource is the universal name so that we can hook into spi functionality
+        in a generic manner
+
+        :param resource:
         :param kwargs:
         :returns future (key for the inserted search doc):
         """
-        result = yield self.search_index.put_async(search_doc, **kwargs)
+        result = yield self.search_index.put_async(resource, **kwargs)
         raise ndb.Return(result)
 
 
@@ -604,15 +607,15 @@ class SearchGet(SearchMethod):
         kwargs['code_name'] = 'get'
         super(SearchGet, self).__init__(**kwargs)
 
-    def _internal_op(self, search_doc_uid, **kwargs):
+    def _internal_op(self, resource_uid, **kwargs):
         """
         Get model from the Search index.
 
-        :param search_doc_uid:
+        :param resource_uid:
         :param kwargs:
         :returns future (key for the inserted search doc):
         """
-        result = yield self.search_index.get_async(search_doc_uid, **kwargs)
+        result = yield self.search_index.get_async(resource_uid, **kwargs)
         raise ndb.Return(result)
 
 
@@ -621,15 +624,15 @@ class SearchUpdate(SearchMethod):
         kwargs['code_name'] = 'update'
         super(SearchUpdate, self).__init__(**kwargs)
 
-    def _internal_op(self, search_doc, **kwargs):
+    def _internal_op(self, resource, **kwargs):
         """
         Update model in the Search index.
 
-        :param search_doc:
+        :param resource:
         :param kwargs:
         :returns future (key for the inserted search doc):
         """
-        result = yield self.search_index.put_async(search_doc, **kwargs)
+        result = yield self.search_index.put_async(resource, **kwargs)
         raise ndb.Return(result)
 
 
@@ -638,14 +641,14 @@ class SearchDelete(SearchMethod):
         kwargs['code_name'] = 'delete'
         super(SearchDelete, self).__init__(**kwargs)
 
-    def _internal_op(self, search_doc_uid, **kwargs):
+    def _internal_op(self, resource_uid, **kwargs):
         """
         Delete model from the Search index.
 
-        :param search_doc_uid:
+        :param resource_uid:
         :param kwargs:
         """
-        result = yield self.search_index.delete_async(search_doc_uid, **kwargs)
+        result = yield self.search_index.delete_async(resource_uid, **kwargs)
         raise ndb.Return(result)
 
 
