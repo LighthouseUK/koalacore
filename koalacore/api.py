@@ -22,19 +22,13 @@
 
 from blinker import signal
 from google.appengine.ext import deferred
-from .spi import GAESPI, SPIContainer
-from .resource import Resource, ResourceMock
-from .ramdisk import RamDisk, _hash
+from .resource import ResourceMock
 import google.appengine.ext.ndb as ndb
 
 __author__ = 'Matt Badger'
 
 async = ndb.tasklet
 sync = ndb.synctasklet
-# TODO: remove the deferred library dependency; extend the BaseAPI in an App Engine specific module to include deferred.
-
-# TODO: it is possible that these methods will fail and thus their result will be None. Passing this in a signal may
-# cause other functions to throw exceptions. Check the return value before processing the post_ signals?
 
 
 SECURITY_API_CONFIG = {
@@ -47,8 +41,36 @@ SECURITY_API_CONFIG = {
 }
 
 
+def _parse_component_config(config, default_config):
+    try:
+        return default_config.update(config)
+    except (KeyError, TypeError, AttributeError):
+        # Missing key or explicitly set to none
+        return None
+
+
+def _init_component(config, default_config):
+    try:
+        _parse_component_config(config=config, default_config=default_config)
+    except (KeyError, TypeError, AttributeError):
+        # Missing key or explicitly set to none
+        return None
+    else:
+        component_type = default_config['type']
+        del default_config['type']
+
+        try:
+            component = component_type(**default_config)
+        except TypeError:
+            # The supplied type is not instantiable
+            return None
+        else:
+            return component
+
+
 class TopLevelAPI(object):
     def __init__(self, children=None):
+        self._path = ''
         self.map = None
         if children is None:
             self.children = []
@@ -56,100 +78,53 @@ class TopLevelAPI(object):
             self.children = children
 
 
-def apimethodwrapper(f):
-    """
-        Wraps api methods with signal sending; removes boilerplate code.
-
-        NOTE: you must use kwargs with this decorator. You should only ever be passing named arguments to api methods.
-        This allows us to more easily evaluate the arguments with the signals, but it also eliminates bugs due to
-        argument positioning.
-    """
-
-    def _w(*args, **kwargs):
-        pre_hook_name = 'pre_{}'.format(f.func_name)
-        pre_hook = signal(pre_hook_name)
-        post_hook_name = 'post_{}'.format(f.func_name)
-        post_hook = signal(post_hook_name)
-
-        if bool(pre_hook.receivers):
-            for receiver in pre_hook.receivers_for(args[0]):
-                receiver(args[0], **kwargs)
-
-        result = yield f(*args, **kwargs)
-
-        if bool(post_hook.receivers):
-            for receiver in post_hook.receivers_for(args[0]):
-                receiver(args[0], result=result, **kwargs)
-
-        raise ndb.Return(result)
-
-    return _w
-
-
-"""
-We turn the apimethodwrapper into an ndb tasklet to facilitate async signal sending (by default the signals are
-blocking). That's not to say that they can't still be blocking if you write blocking code. Any connected signals should
-not return a value, and should avoid blocking code at all costs (think making remote api calls without yielding).
-"""
-apimethod = ndb.tasklet(apimethodwrapper)
-
-
-def cache_result(ttl=0, noc=0):
-    """
-        Wraps an api method and caches the result
-
-        NOTE: you must use kwargs with this decorator. You should only ever be passing named arguments to api methods.
-        This allows us to more easily evaluate the arguments with the signals, but it also eliminates bugs due to
-        argument positioning.
-        You must also have set `create_cache` to True in the API config.
-    """
-
-    def result_cacher(func):
-
-        def cacher(*args, **kwargs):
-            cache = _hash(func, list(args), ttl, **kwargs)
-            result = args[0]._cache.get_data(cache, ttl=ttl, noc=noc)
-
-            if result is not None:
-                return result
-            else:
-                result = func(*args, **kwargs)
-                args[0]._cache.store_data(cache, result, ttl=ttl, noc=noc, ncalls=0)
-            return result
-
-        return cacher
-
-    return result_cacher
-
-
-class AsyncAPIMethod(object):
-    def __init__(self, code_name, parent_api):
+class Component(object):
+    def __init__(self, code_name, base_path, **kwargs):
         self.code_name = code_name
+        self._path = '{}.{}'.format(base_path, code_name)
+
+
+class BaseApiMethod(Component):
+    def __init__(self, **kwargs):
+        super(BaseApiMethod, self).__init__(**kwargs)
+        self._create_signals()
+
+    def _create_signals(self):
+        pass
+
+    @async
+    def _trigger_signal(self, signal_to_trigger, sender, **kwargs):
+        if bool(signal_to_trigger.receivers):
+            kwargs['hook_name'] = signal_to_trigger.name
+            for receiver in signal_to_trigger.receivers_for(sender=sender):
+                yield receiver(self, **kwargs)
+
+    @async
+    def __call__(self, **kwargs):
+        raise NotImplemented
+
+
+class APIMethod(BaseApiMethod):
+    def __init__(self, parent_api, **kwargs):
         self.parent_api = parent_api
+        self.action_name = '{}_{}'.format(self.code_name, kwargs['base_path'].replace('.', '_'))
+        super(APIMethod, self).__init__(**kwargs)
 
-        try:
-            self.spi = self.parent_api.spi
-        except AttributeError:
-            self.spi = None
-
-        self.action_name = '{}_{}'.format(self.code_name, self.parent_api.code_name)
+    def _create_signals(self):
         self.pre_name = 'pre_{}'.format(self.code_name)
         self.hook_name = self.code_name
         self.post_name = 'post_{}'.format(self.code_name)
 
-    @async
-    def _trigger_hook(self, hook_name, **kwargs):
-        hook = signal(hook_name)
-        if bool(hook.receivers):
-            kwargs['hook_name'] = hook_name
-            kwargs['action'] = self.action_name
-            results = []
-            for receiver in hook.receivers_for(self.parent_api):
-                result = yield receiver(self, **kwargs)
-                results.append(result)
-            raise ndb.Return(results)
+        self.pre_signal = signal(self.pre_name)
+        self.op_signal = signal(self.hook_name)
+        self.post_signal = signal(self.post_name)
 
-    def _reduce_hook_results(self, results):
+    @async
+    def _trigger_signal(self, **kwargs):
+        kwargs['action'] = self.action_name
+        super(APIMethod, self)._trigger_signal(**kwargs)
+
+    def _reduce_signal_results(self, results):
         if results is not None and results:
             return results[0]
         else:
@@ -167,39 +142,79 @@ class AsyncAPIMethod(object):
         :param kwargs:
         :return:
         """
-        yield self._trigger_hook(hook_name=self.pre_name, **kwargs)
-        results = yield self._trigger_hook(hook_name=self.hook_name, spi=self.spi, **kwargs)
-        main_result = self._reduce_hook_results(results=results)
+        yield self._trigger_signal(signal_to_trigger=self.pre_name, sender=self.parent_api, **kwargs)
+        results = yield self._trigger_signal(signal_to_trigger=self.op_signal, sender=self.parent_api, api=self.parent_api, **kwargs)
+        main_result = self._reduce_signal_results(results=results)
         # Result could be a list, depending on how many hooks you have setup. These will all be passed to the post hook
         # so that you can do further processing. However, callers of the API do not need these extra return values.
         # We pass result to a parse function that by default simply returns the first element in the list. You can
         # override this as necessary.
-        yield self._trigger_hook(hook_name=self.post_name, result=main_result, raw_result=results, **kwargs)
+        yield self._trigger_signal(signal_to_trigger=self.post_signal, sender=self.parent_api, result=main_result, raw_result=results, **kwargs)
 
         raise ndb.Return(main_result)
 
 
-def _configure_spi(spi_config, default_spi_config, resource_model=None):
-    try:
-        default_spi_config.update(spi_config)
-    except (KeyError, TypeError):
-        # Missing key or explicitly set to none
-        pass
+class BaseRPCMethod(BaseApiMethod):
+    def __init__(self, resource_name, **kwargs):
+        self.resource_name = resource_name
+        super(BaseRPCMethod, self).__init__(**kwargs)
 
-    spi_type = default_spi_config['type']
-    del default_spi_config['type']
+    def _create_signals(self):
+        self.pre_name = 'pre_{}_{}'.format(self.resource_name, self.code_name)
+        self.post_name = 'post_{}_{}'.format(self.resource_name, self.code_name)
 
-    try:
-        spi = spi_type(resource_model=resource_model, **default_spi_config)
-    except TypeError:
-        # The supplied type is not instantiable
-        return None
-    else:
-        return spi
+        self.pre_signal = signal(self.pre_name)
+        self.post_signal = signal(self.post_name)
+
+    @async
+    def _internal_op(self, **kwargs):
+        raise NotImplementedError
+
+    @async
+    def __call__(self, **kwargs):
+        """
+        SPI methods are very simple. They simply emit signal which you can receive and act upon. By default
+        there are two signals: pre and post.
+
+        :param kwargs:
+        :return:
+        """
+        yield self._trigger_signal(signal_to_trigger=self.pre_signal, sender=self, **kwargs)
+        result = yield self._internal_op(**kwargs)
+        yield self._trigger_signal(signal_to_trigger=self.post_signal, sender=self, op_result=result, **kwargs)
+        raise ndb.Return(result)
 
 
-class BaseAPI(object):
-    def __init__(self, code_name, resource_model, spi_config=None, methods=None, children=None, default_spi_config=None, **kwargs):
+class RPCMethodMock(BaseRPCMethod):
+    def __init__(self, resource_name, **kwargs):
+        self.resource_name = resource_name
+        super(RPCMethodMock, self).__init__(**kwargs)
+
+    @async
+    def _internal_op(self, **kwargs):
+        raise ndb.Return('Successfully called `{}` `{}` RPC Mock Method'.format(self.resource_name, self.code_name))
+
+
+class BaseRPCClient(Component):
+    def __init__(self, resource_model, **kwargs):
+        super(BaseRPCClient, self).__init__(**kwargs)
+        self.resource_model = resource_model
+        self.resource_name = resource_model.__name__
+
+
+class RPCClientMock(BaseRPCClient):
+    def __init__(self, methods=None, **kwargs):
+        super(RPCClientMock, self).__init__(**kwargs)
+        if methods is not None:
+            self._create_methods(methods=methods, resource_name=self.resource_name, **kwargs)
+
+    def _create_methods(self, methods, **kwargs):
+        for method in methods:
+            setattr(self, method, RPCMethodMock(code_name=method, **kwargs))
+
+
+class BaseAPI(Component):
+    def __init__(self, resource_model, methods=None, children=None, **kwargs):
         """
         code_name is the name of the API, taken from the api config.
 
@@ -209,6 +224,7 @@ class BaseAPI(object):
 
         :param code_name:
         :param resource_model:
+        :param base_path:
         :param spi_config:
         :param methods:
         :param children:
@@ -216,30 +232,25 @@ class BaseAPI(object):
         :param default_resource_update_queue:
         :param default_search_update_queue:
         """
-        self.code_name = code_name
+        super(BaseAPI, self).__init__(**kwargs)
         self.resource_model = resource_model
         self.methods = methods
-
-        self.spi = self._configure_spi(spi_config=spi_config, default_spi_config=default_spi_config,
-                                       resource_model=resource_model)
 
         if children is None:
             self.children = []
         else:
             self.children = children
 
-    _configure_spi = staticmethod(_configure_spi)
 
-
-class AsyncResourceApi(BaseAPI):
-    def __init__(self, default_api_method_class=AsyncAPIMethod, **kwargs):
+class ResourceApi(BaseAPI):
+    def __init__(self, default_api_method_class=APIMethod, **kwargs):
         """
         The only difference from the base class is that we automatically create async api methods based on the provided
         list of methods. The methods are set as attributes.
 
         :param kwargs:
         """
-        super(AsyncResourceApi, self).__init__(**kwargs)
+        super(ResourceApi, self).__init__(**kwargs)
 
         if self.methods is not None:
             for method in self.methods:
@@ -247,55 +258,67 @@ class AsyncResourceApi(BaseAPI):
 
 
 @async
-def _insert(sender, spi, **kwargs):
-    result = yield spi.datastore.insert(**kwargs)
+def _insert(sender, api, **kwargs):
+    result = yield api.datastore.insert(**kwargs)
     raise ndb.Return(result)
 
 
 @async
-def _get(sender, spi, **kwargs):
-    result = yield spi.datastore.get(**kwargs)
+def _get(sender, api, **kwargs):
+    result = yield api.datastore.get(**kwargs)
     raise ndb.Return(result)
 
 
 @async
-def _update(sender, spi, **kwargs):
-    result = yield spi.datastore.update(**kwargs)
+def _update(sender, api, **kwargs):
+    result = yield api.datastore.update(**kwargs)
     raise ndb.Return(result)
 
 
 @async
-def _delete(sender, spi, **kwargs):
-    result = yield spi.datastore.delete(**kwargs)
+def _delete(sender, api, **kwargs):
+    result = yield api.datastore.delete(**kwargs)
     raise ndb.Return(result)
 
 
 @async
-def _query(sender, spi, **kwargs):
-    result = yield spi.datastore.query(**kwargs)
+def _query(sender, api, **kwargs):
+    result = yield api.datastore.query(**kwargs)
     raise ndb.Return(result)
 
 
 @async
-def _search(sender, spi, **kwargs):
-    result = yield spi.search_index.search(**kwargs)
+def _search(sender, api, **kwargs):
+    result = yield api.search_index.search(**kwargs)
     raise ndb.Return(result)
 
 
-class GaeApi(AsyncResourceApi):
-    def __init__(self, **kwargs):
+class GaeApi(ResourceApi):
+    def __init__(self, datastore_config=None, search_config=None, resource_update_queue='resource-update',
+                 search_update_queue='search-index-update', **kwargs):
         """
         The only difference from the parent class is that we automatically create ndb methods and setup search index
         updating.
 
         :param kwargs:
         """
-        # TODO: add system_identity_uid to the config
-        kwargs['default_spi_config'] = {
-            'type': GAESPI,
-            'resource_update_queue': 'resource-update',
-            'search_update_queue': 'search-index-update',
+        # TODO: move this to another module to keep things neat
+        default_datastore_config = {
+            'type': RPCClientMock,
+            'resource_model': kwargs['resource_model'],
         }
+
+        default_search_config = {
+            'type': RPCClientMock,
+            'resource_model': kwargs['resource_model'],
+        }
+
+        self.resource_update_queue = resource_update_queue
+        self.search_update_queue = search_update_queue
+
+        self.datastore = _init_component(config=datastore_config, default_config=default_datastore_config)
+        self.search_index = _init_component(config=search_config, default_config=default_search_config)
+
         super(GaeApi, self).__init__(**kwargs)
         # Attach hooks to the methods
         signal('insert').connect(_insert, sender=self)
@@ -305,7 +328,6 @@ class GaeApi(AsyncResourceApi):
         signal('query').connect(_query, sender=self)
         signal('search').connect(_search, sender=self)
         # Add hooks to update search index
-        search_queue = self.spi.search_update_queue
         # TODO: can't pickle the spi classes because of instance methods. Possibly add __getstate__ and __setstate__
         # TODO: possibly use copy_reg to define methods used for pickling API/SPI methods
         # the API methods work because they use signals to connect the internal op methods instead of being customized
@@ -313,18 +335,18 @@ class GaeApi(AsyncResourceApi):
         # share a base class? They are fundamentally similar; we're just providing an abstraction over the internal
         # workings.
         signal('post_insert').connect(self._test_hook, sender=self)
-        signal('post_update').connect(lambda **k: deferred.defer(self._update_search_index, _queue=search_queue, **k), sender=self)
-        signal('post_delete').connect(lambda **k: deferred.defer(self._delete_search_index, _queue=search_queue, **k), sender=self)
+        signal('post_update').connect(lambda **k: deferred.defer(self._update_search_index, _queue=self.search_update_queue, **k), sender=self)
+        signal('post_delete').connect(lambda **k: deferred.defer(self._delete_search_index, _queue=self.search_update_queue, **k), sender=self)
 
     def _test_hook(self, sender, result, **kwargs):
-        deferred.defer(self._update_search_index, _queue=self.spi.search_update_queue, result=result)
+        deferred.defer(self._update_search_index, _queue=self.search_update_queue, result=result)
 
     def _update_search_index(self, result, **kwargs):
         resource = self.get(resource_uid=result).get_result()
-        self.spi.search_index.insert(resource=resource.to_search_doc(), identity_uid='systemidentitykey', **kwargs)
+        self.search_index.insert(resource=resource.to_search_doc(), identity_uid='systemidentitykey', **kwargs)
 
     def _delete_search_index(self, result, **kwargs):
-        self.spi.search_index.delete(resource_uid=result, identity_uid='systemidentitykey', **kwargs)
+        self.search_index.delete(resource_uid=result, identity_uid='systemidentitykey', **kwargs)
 
 
 class Security(GaeApi):
@@ -395,6 +417,7 @@ def init_api(api_name, api_def, parent=None, default_api=GaeApi, default_methods
 
     default_api_config = {
         'code_name': api_name,
+        'base_path': parent._path,
         'type': default_api,
         'methods': default_methods,
         'resource_model': resource_mock,

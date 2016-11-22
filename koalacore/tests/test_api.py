@@ -19,13 +19,14 @@
 """
 import unittest
 from blinker import signal
-from koalacore.api import parse_api_config
+from koalacore.api import parse_api_config, APIMethod, BaseAPI
 from koalacore.resource import Resource, StringProperty, ResourceUIDProperty, ResourceUID, DateProperty, DateTimeProperty, TimeProperty
-from koalacore.spi import NDBDatastore, GAESearch, UniqueValueRequired
+from koalacore.rpc import NDBDatastore, GAESearch, UniqueValueRequired, NDBInsert
 from google.appengine.ext import testbed
 from google.appengine.ext import deferred
 import google.appengine.ext.ndb as ndb
 import copy
+import pickle
 from google.appengine.datastore import datastore_stub_util  # noqa
 
 __author__ = 'Matt Badger'
@@ -350,6 +351,16 @@ class TestResource(unittest.TestCase):
         searchable = test.to_searchable_properties()
         retrieved = new_uid.get()
         retrieved.file_name = 'newfilename'
+        pass
+
+    def test_resource_method(self):
+        test = APIMethod(code_name='test', parent_api=BaseAPI(code_name='ParentAPI', resource_model=None))
+        result = pickle.dumps(test)
+        # TODO: test SPIMethod
+        # TODO: use functions for parsing config dicts, use wrapper to parse api class instantiation
+        # (everything uses the same code)
+        test_spi_method = NDBInsert(resource_name='company')
+        result_spi = pickle.dumps(test)
         pass
 
 

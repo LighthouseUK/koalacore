@@ -21,8 +21,9 @@
 from blinker import signal
 import google.appengine.ext.ndb as ndb
 from google.appengine.api import search
+from .api import BaseRPCMethod, BaseRPCClient
 from .tools import DictDiffer
-from .exceptions import KoalaException
+from .exceptions import UniqueValueRequired
 from .resource import ResourceUID
 
 
@@ -31,104 +32,6 @@ __author__ = 'Matt Badger'
 
 async = ndb.tasklet
 Index = search.Index
-
-
-class ResourceNotFound(KoalaException):
-    """
-    Raised when a datastore method that requires a resource cannot find said resource. Usually because the supplied uid
-    does not exist.
-    """
-    pass
-
-
-class ResourceException(KoalaException):
-    """
-    Used when there was a problem persisting changes to a resource. Generally this is the base exception; more granular
-    exceptions would be useful, but it provides a catch all fallback.
-    """
-    pass
-
-
-class UniqueValueRequired(ResourceException, ValueError):
-    """
-    Raised during the insert, update operations in the datastore interfaces. If a lock on the unique value cannot be
-    obtained then this exception is raised. It should detail the reason for failure by listing the values that locks
-    could not be obtained for.
-    """
-
-    def __init__(self, errors, message=u'Unique resource values already exist in the datastore'):
-        super(UniqueValueRequired, self).__init__(message)
-
-
-class BaseSPI(object):
-    def __init__(self, resource_model, **kwargs):
-        self.resource_model = resource_model
-        self.resource_name = resource_model.__name__
-
-
-class SPIContainer(object):
-    def __init__(self, resource_model, resource_update_queue=None, search_update_queue=None, **kwargs):
-        # we need the resource model, but only for init; no point saving it as an attribute
-        self.resource_update_queue = resource_update_queue
-        self.search_update_queue = search_update_queue
-
-
-class SPIMock(BaseSPI):
-    def __init__(self, methods=None, **kwargs):
-        super(SPIMock, self).__init__(**kwargs)
-        if methods is not None:
-            self._create_methods(methods=methods, resource_name=self.resource_name, **kwargs)
-
-    def _create_methods(self, methods, **kwargs):
-        pass
-
-
-class DatastoreMock(SPIMock):
-    def _create_methods(self, methods, **kwargs):
-        for method in methods:
-            setattr(self, method, NDBMethod(code_name=method, **kwargs))
-
-
-class SearchMock(SPIMock):
-    def _create_methods(self, methods, **kwargs):
-        for method in methods:
-            setattr(self, method, SPIMethod(code_name=method, **kwargs))
-
-
-class GAESPI(SPIContainer):
-    def __init__(self, datastore_config=None, search_config=None, **kwargs):
-        super(GAESPI, self).__init__(**kwargs)
-        # Need the task queue to use for updates to search doc and resource model, if necessary
-        default_datastore_config = {
-            'type': DatastoreMock,
-            'resource_model': kwargs['resource_model'],
-        }
-
-        try:
-            default_datastore_config.update(datastore_config)
-        except (KeyError, TypeError):
-            pass
-
-        new_datastore_type = default_datastore_config['type']
-        del default_datastore_config['type']
-        self.datastore = new_datastore_type(**default_datastore_config)
-
-        # Update the default search config with the user supplied values and set them in the def
-        default_search_config = {
-            'type': SearchMock,
-            'resource_model': kwargs['resource_model'],
-            'result_model': Result,
-            'search_results_model': SearchResults,
-        }
-
-        try:
-            default_search_config.update(search_config)
-        except (KeyError, TypeError):
-            pass
-
-        new_search_index_type = default_search_config['type']
-        del default_search_config['type']
-        self.search_index = new_search_index_type(**default_search_config)
 
 
 class SearchResults(object):
@@ -145,55 +48,11 @@ class Result(object):
         self.uid = uid
 
 
-class SPIMethod(object):
-    def __init__(self, code_name, resource_name, **kwargs):
-        self.code_name = code_name
-        self.resource_name = resource_name
-        self._create_hooks(resource_name=resource_name, code_name=code_name)
-
-    def _create_hooks(self, resource_name, code_name):
-        self.pre_name = 'pre_{}_{}'.format(resource_name, code_name)
-        self.post_name = 'post_{}_{}'.format(resource_name, code_name)
-
-        self.pre_signal = signal(self.pre_name)
-        self.post_signal = signal(self.post_name)
-
-    @async
-    def _trigger_hook(self, signal_name, **kwargs):
-        if bool(signal_name.receivers):
-            kwargs['hook_name'] = signal_name.name
-            for receiver in signal_name.receivers_for(self):
-                yield receiver(self, **kwargs)
-
-    @async
-    def _internal_op(self, **kwargs):
-        raise NotImplementedError
-
-    @async
-    def __call__(self, **kwargs):
-        """
-        SPI methods are very simple. They simply emit signal which you can receive and act upon. By default
-        there are two signals: pre and post.
-
-        :param kwargs:
-        :return:
-        """
-        yield self._trigger_hook(signal_name=self.pre_signal, **kwargs)
-        result = yield self._internal_op(**kwargs)
-        yield self._trigger_hook(signal_name=self.post_signal, op_result=result, **kwargs)
-        raise ndb.Return(result)
-
-
 class UniqueValue(ndb.Model):
     pass
 
 
-@ndb.transactional_tasklet(xg=True)
-def test(example=None):
-    return example
-
-
-class NDBMethod(SPIMethod):
+class NDBMethod(BaseRPCMethod):
     def __init__(self, uniques_value_model=UniqueValue, force_unique_parse=False, transaction_config=None, **kwargs):
         super(NDBMethod, self).__init__(**kwargs)
         if transaction_config is None:
@@ -367,7 +226,7 @@ class NDBInsert(NDBMethod):
         :returns future (key for the inserted entity):
         """
         kwargs['resource'] = resource
-        yield self._trigger_hook(signal_name=self.pre_signal, **kwargs)
+        yield self._trigger_signal(signal_to_trigger=self.pre_signal, sender=self, **kwargs)
 
         # This might raise an exception, but it doesn't return a value. If uniques are supplied then we are
         # automatically in a transaction
@@ -377,7 +236,7 @@ class NDBInsert(NDBMethod):
         result = yield resource.put_async(**context_config)
         resource_uid = ResourceUID(raw=result)
 
-        yield self._trigger_hook(signal_name=self.post_signal, op_result=resource_uid, **kwargs)
+        yield self._trigger_signal(signal_to_trigger=self.post_signal, sender=self, op_result=resource_uid, **kwargs)
 
         raise ndb.Return(resource_uid)
 
@@ -400,11 +259,11 @@ class NDBGet(NDBMethod):
         :returns future (key for the inserted entity):
         """
         kwargs['resource_uid'] = resource_uid
-        yield self._trigger_hook(signal_name=self.pre_signal, **kwargs)
+        yield self._trigger_signal(signal_to_trigger=self.pre_signal, sender=self, **kwargs)
 
         result = yield resource_uid.raw.get_async(**context_config)
 
-        yield self._trigger_hook(signal_name=self.post_signal, op_result=result, **kwargs)
+        yield self._trigger_signal(signal_to_trigger=self.post_signal, sender=self, op_result=result, **kwargs)
 
         raise ndb.Return(result)
 
@@ -430,7 +289,7 @@ class NDBUpdate(NDBMethod):
         :returns future (key for the inserted entity):
         """
         kwargs['resource'] = resource
-        yield self._trigger_hook(signal_name=self.pre_signal, **kwargs)
+        yield self._trigger_signal(signal_to_trigger=self.pre_signal, sender=self, **kwargs)
 
         # This might raise an exception, but it doesn't return a value. If uniques are supplied then we are
         # automatically in a transaction
@@ -445,7 +304,7 @@ class NDBUpdate(NDBMethod):
         result = yield resource.put_async(**context_config)
         resource_uid = ResourceUID(raw=result)
 
-        yield self._trigger_hook(signal_name=self.post_signal, op_result=resource_uid, **kwargs)
+        yield self._trigger_signal(signal_to_trigger=self.post_signal, sender=self, op_result=resource_uid, **kwargs)
 
         raise ndb.Return(resource_uid)
 
@@ -467,14 +326,14 @@ class NDBDelete(NDBMethod):
         :param kwargs:
         """
         kwargs['resource_uid'] = resource_uid
-        yield self._trigger_hook(signal_name=self.pre_signal, **kwargs)
+        yield self._trigger_signal(signal_to_trigger=self.pre_signal, sender=self, **kwargs)
 
         if uniques:
             yield self._delete_unique_locks(uniques=uniques)
 
         result = yield resource_uid.raw.delete_async(**context_config)
 
-        yield self._trigger_hook(signal_name=self.post_signal, op_result=resource_uid, **kwargs)
+        yield self._trigger_signal(signal_to_trigger=self.post_signal, sender=self, op_result=resource_uid, **kwargs)
 
         raise ndb.Return(resource_uid)
 
@@ -494,7 +353,7 @@ class NDBDelete(NDBMethod):
         raise ndb.Return(result)
 
 
-class NDBDatastore(object):
+class NDBDatastore(BaseRPCClient):
     """
     NDB Datastore Interface. Sets up async, transaction supported, NDB methods with support for signals. This allows
     other API components to hook into datastore ops.
@@ -509,12 +368,13 @@ class NDBDatastore(object):
 
     """
 
-    def __init__(self, resource_model, **kwargs):
-        resource_name = resource_model.__name__
-        self.insert = NDBInsert(resource_name=resource_name)
-        self.get = NDBGet(resource_name=resource_name)
-        self.update = NDBUpdate(resource_name=resource_name)
-        self.delete = NDBDelete(resource_name=resource_name)
+    def __init__(self, **kwargs):
+        super(NDBDatastore, self).__init__(**kwargs)
+        # TODO: need to allow config of methods; pass config to init?
+        self.insert = NDBInsert(resource_name=self.resource_name)
+        self.get = NDBGet(resource_name=self.resource_name)
+        self.update = NDBUpdate(resource_name=self.resource_name)
+        self.delete = NDBDelete(resource_name=self.resource_name)
 
     def build_resource_uid(self, desired_id, parent=None, namespace=None, urlsafe=True):
         # TODO: fix this for new resource model
@@ -555,31 +415,10 @@ def diff_resource_properties(source, target):
     return modified
 
 
-class SearchMethod(SPIMethod):
+class SearchMethod(BaseRPCMethod):
     def __init__(self, search_index, **kwargs):
         super(SearchMethod, self).__init__(**kwargs)
         self.search_index = search_index
-
-    def _create_hooks(self, resource_name, code_name):
-        self.pre_name = 'pre_{}_search_{}'.format(resource_name, code_name)
-        self.post_name = 'post_{}_search_{}'.format(resource_name, code_name)
-
-        self.pre_signal = signal(self.pre_name)
-        self.post_signal = signal(self.post_name)
-
-    @async
-    def __call__(self, **kwargs):
-        """
-        API methods are very simple. They simply emit signal which you can receive and act upon. By default
-        there are two signals: pre and post.
-
-        :param kwargs:
-        :return:
-        """
-        yield self._trigger_hook(signal_name=self.pre_signal, **kwargs)
-        result = yield self._internal_op(**kwargs)
-        yield self._trigger_hook(signal_name=self.post_signal, op_result=result, **kwargs)
-        raise ndb.Return(result)
 
 
 class SearchInsert(SearchMethod):

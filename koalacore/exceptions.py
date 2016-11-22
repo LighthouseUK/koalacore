@@ -42,4 +42,31 @@ class UnauthorisedUser(KoalaException):
     pass
 
 
+class ResourceNotFound(KoalaException):
+    """
+    Raised when a datastore method that requires a resource cannot find said resource. Usually because the supplied uid
+    does not exist.
+    """
+    pass
+
+
+class ResourceException(KoalaException):
+    """
+    Used when there was a problem persisting changes to a resource. Generally this is the base exception; more granular
+    exceptions would be useful, but it provides a catch all fallback.
+    """
+    pass
+
+
+class UniqueValueRequired(ResourceException, ValueError):
+    """
+    Raised during the insert, update operations in the datastore interfaces. If a lock on the unique value cannot be
+    obtained then this exception is raised. It should detail the reason for failure by listing the values that locks
+    could not be obtained for.
+    """
+
+    def __init__(self, errors, message=u'Unique resource values already exist in the datastore'):
+        super(UniqueValueRequired, self).__init__(message)
+
+
 
