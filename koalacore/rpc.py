@@ -21,7 +21,7 @@
 from blinker import signal
 import google.appengine.ext.ndb as ndb
 from google.appengine.api import search
-from .api import Method, BaseRPCClient
+from .api import Method, RPCClient
 from .tools import DictDiffer
 from .exceptions import UniqueValueRequired
 from .resource import ResourceUID
@@ -353,7 +353,7 @@ class NDBDelete(NDBMethod):
         raise ndb.Return(result)
 
 
-class NDBDatastore(BaseRPCClient):
+class NDBDatastore(RPCClient):
     """
     NDB Datastore Interface. Sets up async, transaction supported, NDB methods with support for signals. This allows
     other API components to hook into datastore ops.

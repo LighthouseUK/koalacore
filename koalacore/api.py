@@ -105,8 +105,14 @@ class Method(Component):
             kwargs['action'] = self.action_name
             for receiver in signal_to_trigger.receivers_for(sender=sender):
                 yield receiver(self, **kwargs)
-    @async
+
     def _internal_op(self, **kwargs):
+        """
+        Note the lack of async decorator. This is intentional because the __call__ method may wish to use a different
+         decorator at runtime (based on request variables).
+        :param kwargs:
+        :return:
+        """
         results = yield self._trigger_signal(signal_to_trigger=signal(self.action_name), sender=self._parent, **kwargs)
         # Result could be a list, depending on how many hooks you have setup. These will all be passed to the post hook
         # so that you can do further processing. However, callers of the API do not need these extra return values. We
@@ -127,7 +133,7 @@ class Method(Component):
         :return:
         """
         yield self._trigger_signal(signal_to_trigger=self.pre_signal, sender=self._parent, **kwargs)
-        result = yield self._internal_op(**kwargs)
+        result = yield async(self._internal_op)(**kwargs)
         yield self._trigger_signal(signal_to_trigger=self.post_signal, sender=self._parent, op_result=result, **kwargs)
         raise ndb.Return(result)
 
@@ -147,42 +153,17 @@ class RPCMethod(Method):
         raise ndb.Return(result)
 
 
-class BaseRPCClient(Component):
-    def __init__(self, resource_model, **kwargs):
-        super(BaseRPCClient, self).__init__(**kwargs)
-        self.resource_model = resource_model
-        self.resource_name = resource_model.__name__
-
-
-class RPCClientMock(BaseRPCClient):
-    def __init__(self, methods=None, **kwargs):
-        super(RPCClientMock, self).__init__(**kwargs)
-        if methods is not None:
-            self._create_methods(methods=methods, resource_name=self.resource_name, **kwargs)
-
-    def _create_methods(self, methods, **kwargs):
-        for method in methods:
-            setattr(self, method, RPCMethod(code_name=method, **kwargs))
-
-
 class BaseAPI(Component):
-    def __init__(self, resource_model, methods=None, children=None, **kwargs):
+    def __init__(self, resource_model, methods=None, children=None, method_class=Method, **kwargs):
         """
         code_name is the name of the API, taken from the api config.
-
-        spi is the service interface that the api can use. This is available in each method.
 
         methods is a list of strings representing the desired methods.
 
         :param code_name:
         :param resource_model:
-        :param base_path:
-        :param spi_config:
         :param methods:
         :param children:
-        :param default_spi:
-        :param default_resource_update_queue:
-        :param default_search_update_queue:
         """
         super(BaseAPI, self).__init__(**kwargs)
         self.resource_model = resource_model
@@ -193,59 +174,84 @@ class BaseAPI(Component):
         else:
             self.children = children
 
+        self._create_methods(method_class=method_class)
 
-class ResourceApi(BaseAPI):
-    def __init__(self, default_api_method_class=Method, **kwargs):
-        """
-        The only difference from the base class is that we automatically create async api methods based on the provided
-        list of methods. The methods are set as attributes.
-
-        :param kwargs:
-        """
-        super(ResourceApi, self).__init__(**kwargs)
-
+    def _create_methods(self, method_class):
         if self.methods is not None:
             for method in self.methods:
-                setattr(self, method, default_api_method_class(code_name=method, parent=self))
+                setattr(self, method, method_class(code_name=method, parent=self))
 
 
-@async
-def _insert(sender, api, **kwargs):
-    result = yield api.datastore.insert(**kwargs)
-    raise ndb.Return(result)
+class RPCClient(BaseAPI):
+    def __init__(self, method_class=RPCMethod, **kwargs):
+        super(RPCClient, self).__init__(method_class=method_class, **kwargs)
 
 
-@async
-def _get(sender, api, **kwargs):
-    result = yield api.datastore.get(**kwargs)
-    raise ndb.Return(result)
+class ResourceApi(BaseAPI):
+    pass
 
 
-@async
-def _update(sender, api, **kwargs):
-    result = yield api.datastore.update(**kwargs)
-    raise ndb.Return(result)
+class GaeInsertMethod(Method):
+    def __init__(self, **kwargs):
+        kwargs['code_name'] = 'insert'
+        super(GaeInsertMethod, self).__init__(**kwargs)
+
+    def _internal_op(self, **kwargs):
+        result = yield api.datastore.insert(**kwargs)
+        raise ndb.Return(result)
 
 
-@async
-def _delete(sender, api, **kwargs):
-    result = yield api.datastore.delete(**kwargs)
-    raise ndb.Return(result)
+class GaeGetMethod(Method):
+    def __init__(self, **kwargs):
+        kwargs['code_name'] = 'get'
+        super(GaeGetMethod, self).__init__(**kwargs)
+
+    def _internal_op(self, **kwargs):
+        result = yield api.datastore.get(**kwargs)
+        raise ndb.Return(result)
 
 
-@async
-def _query(sender, api, **kwargs):
-    result = yield api.datastore.query(**kwargs)
-    raise ndb.Return(result)
+class GaeUpdateMethod(Method):
+    def __init__(self, **kwargs):
+        kwargs['code_name'] = 'update'
+        super(GaeUpdateMethod, self).__init__(**kwargs)
+
+    def _internal_op(self, **kwargs):
+        result = yield api.datastore.update(**kwargs)
+        raise ndb.Return(result)
 
 
-@async
-def _search(sender, api, **kwargs):
-    result = yield api.search_index.search(**kwargs)
-    raise ndb.Return(result)
+class GaeDeleteMethod(Method):
+    def __init__(self, **kwargs):
+        kwargs['code_name'] = 'delete'
+        super(GaeDeleteMethod, self).__init__(**kwargs)
+
+    def _internal_op(self, **kwargs):
+        result = yield api.datastore.delete(**kwargs)
+        raise ndb.Return(result)
 
 
-class GaeApi(ResourceApi):
+class GaeQueryMethod(Method):
+    def __init__(self, **kwargs):
+        kwargs['code_name'] = 'query'
+        super(GaeQueryMethod, self).__init__(**kwargs)
+
+    def _internal_op(self, **kwargs):
+        result = yield api.datastore.query(**kwargs)
+        raise ndb.Return(result)
+
+
+class GaeSearchMethod(Method):
+    def __init__(self, **kwargs):
+        kwargs['code_name'] = 'search'
+        super(GaeSearchMethod, self).__init__(**kwargs)
+
+    def _internal_op(self, **kwargs):
+        result = yield api.search_index.search(**kwargs)
+        raise ndb.Return(result)
+
+
+class GaeAPI(ResourceApi):
     def __init__(self, datastore_config=None, search_config=None, resource_update_queue='resource-update',
                  search_update_queue='search-index-update', **kwargs):
         """
@@ -256,12 +262,12 @@ class GaeApi(ResourceApi):
         """
         # TODO: move this to another module to keep things neat
         default_datastore_config = {
-            'type': RPCClientMock,
+            'type': RPCClient,
             'resource_model': kwargs['resource_model'],
         }
 
         default_search_config = {
-            'type': RPCClientMock,
+            'type': RPCClient,
             'resource_model': kwargs['resource_model'],
         }
 
@@ -271,14 +277,14 @@ class GaeApi(ResourceApi):
         self.datastore = _init_component(config=datastore_config, default_config=default_datastore_config)
         self.search_index = _init_component(config=search_config, default_config=default_search_config)
 
-        super(GaeApi, self).__init__(**kwargs)
+        super(GaeAPI, self).__init__(**kwargs)
         # Attach hooks to the methods
-        signal('insert').connect(_insert, sender=self)
-        signal('get').connect(_get, sender=self)
-        signal('update').connect(_update, sender=self)
-        signal('delete').connect(_delete, sender=self)
-        signal('query').connect(_query, sender=self)
-        signal('search').connect(_search, sender=self)
+        # signal('insert').connect(_insert, sender=self)
+        # signal('get').connect(_get, sender=self)
+        # signal('update').connect(_update, sender=self)
+        # signal('delete').connect(_delete, sender=self)
+        # signal('query').connect(_query, sender=self)
+        # signal('search').connect(_search, sender=self)
         # Add hooks to update search index
         # TODO: can't pickle the spi classes because of instance methods. Possibly add __getstate__ and __setstate__
         # TODO: possibly use copy_reg to define methods used for pickling API/SPI methods
@@ -286,9 +292,17 @@ class GaeApi(ResourceApi):
         # at run time. Potentially solve everything by converting the SPI methods to do the same thing? They could all
         # share a base class? They are fundamentally similar; we're just providing an abstraction over the internal
         # workings.
-        signal('post_insert').connect(self._test_hook, sender=self)
-        signal('post_update').connect(lambda **k: deferred.defer(self._update_search_index, _queue=self.search_update_queue, **k), sender=self)
-        signal('post_delete').connect(lambda **k: deferred.defer(self._delete_search_index, _queue=self.search_update_queue, **k), sender=self)
+        # signal('post_insert').connect(self._test_hook, sender=self)
+        # signal('post_update').connect(lambda **k: deferred.defer(self._update_search_index, _queue=self.search_update_queue, **k), sender=self)
+        # signal('post_delete').connect(lambda **k: deferred.defer(self._delete_search_index, _queue=self.search_update_queue, **k), sender=self)
+
+    def _create_methods(self, method_class):
+        self.insert = GaeInsertMethod(parent=self)
+        self.get = GaeGetMethod(parent=self)
+        self.update = GaeUpdateMethod(parent=self)
+        self.delete = GaeDeleteMethod(parent=self)
+        self.query = GaeQueryMethod(parent=self)
+        self.search = GaeSearchMethod(parent=self)
 
     def _test_hook(self, sender, result, **kwargs):
         deferred.defer(self._update_search_index, _queue=self.search_update_queue, result=result)
@@ -301,7 +315,7 @@ class GaeApi(ResourceApi):
         self.search_index.delete(resource_uid=result, identity_uid='systemidentitykey', **kwargs)
 
 
-class Security(GaeApi):
+class Security(GaeAPI):
     def __init__(self, valid_actions, pre_hook_names, **kwargs):
         # Init the inode and securityid apis. The default values will be ok here. We need to rely on the NDB datastore
         # because of the implementation. It's ok if the resources themselves are kept elsewhere.
