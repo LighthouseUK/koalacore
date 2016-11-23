@@ -79,102 +79,64 @@ class TopLevelAPI(object):
 
 
 class Component(object):
-    def __init__(self, code_name, base_path, **kwargs):
+    def __init__(self, code_name, parent, **kwargs):
         self.code_name = code_name
-        self._path = '{}.{}'.format(base_path, code_name)
+        self._parent = parent
+        self._path = '{}.{}'.format(self._parent._path, code_name)
 
 
-class BaseApiMethod(Component):
+class Method(Component):
     def __init__(self, **kwargs):
-        super(BaseApiMethod, self).__init__(**kwargs)
+        super(Method, self).__init__(**kwargs)
+        self.action_name = '{}{}'.format(self.code_name, self._parent._path.replace('.', '_'))
         self._create_signals()
 
     def _create_signals(self):
-        pass
+        self.pre_name = 'pre_{}'.format(self.action_name)
+        self.post_name = 'post_{}'.format(self.action_name)
+
+        self.pre_signal = signal(self.pre_name)
+        self.post_signal = signal(self.post_name)
 
     @async
     def _trigger_signal(self, signal_to_trigger, sender, **kwargs):
         if bool(signal_to_trigger.receivers):
             kwargs['hook_name'] = signal_to_trigger.name
+            kwargs['action'] = self.action_name
             for receiver in signal_to_trigger.receivers_for(sender=sender):
                 yield receiver(self, **kwargs)
-
     @async
-    def __call__(self, **kwargs):
-        raise NotImplemented
-
-
-class APIMethod(BaseApiMethod):
-    def __init__(self, parent_api, **kwargs):
-        self.parent_api = parent_api
-        self.action_name = '{}_{}'.format(self.code_name, kwargs['base_path'].replace('.', '_'))
-        super(APIMethod, self).__init__(**kwargs)
-
-    def _create_signals(self):
-        self.pre_name = 'pre_{}'.format(self.code_name)
-        self.hook_name = self.code_name
-        self.post_name = 'post_{}'.format(self.code_name)
-
-        self.pre_signal = signal(self.pre_name)
-        self.op_signal = signal(self.hook_name)
-        self.post_signal = signal(self.post_name)
-
-    @async
-    def _trigger_signal(self, **kwargs):
-        kwargs['action'] = self.action_name
-        super(APIMethod, self)._trigger_signal(**kwargs)
-
-    def _reduce_signal_results(self, results):
+    def _internal_op(self, **kwargs):
+        results = yield self._trigger_signal(signal_to_trigger=signal(self.action_name), sender=self._parent, **kwargs)
+        # Result could be a list, depending on how many hooks you have setup. These will all be passed to the post hook
+        # so that you can do further processing. However, callers of the API do not need these extra return values. We
+        # simply return the first value in the list.
         if results is not None and results:
-            return results[0]
+            main_result = results[0]
         else:
-            return None
+            main_result = None
+        raise ndb.Return(main_result)
 
     @async
     def __call__(self, **kwargs):
         """
-        API methods are very simple. They simply emit signals which you can receive and act upon. By default there are
-        three signals: pre, execute, and post.
-
-        You can connect to them by specifying the sender as a parent api instance. Be careful though, if you
-        don't specify a sender you will be acting upon *every* api method!
+        Methods are very simple. They simply emit signal which you can receive and act upon, both before and after the
+        internal op is executed.
 
         :param kwargs:
         :return:
         """
-        yield self._trigger_signal(signal_to_trigger=self.pre_name, sender=self.parent_api, **kwargs)
-        results = yield self._trigger_signal(signal_to_trigger=self.op_signal, sender=self.parent_api, api=self.parent_api, **kwargs)
-        main_result = self._reduce_signal_results(results=results)
-        # Result could be a list, depending on how many hooks you have setup. These will all be passed to the post hook
-        # so that you can do further processing. However, callers of the API do not need these extra return values.
-        # We pass result to a parse function that by default simply returns the first element in the list. You can
-        # override this as necessary.
-        yield self._trigger_signal(signal_to_trigger=self.post_signal, sender=self.parent_api, result=main_result, raw_result=results, **kwargs)
-
-        raise ndb.Return(main_result)
+        yield self._trigger_signal(signal_to_trigger=self.pre_signal, sender=self._parent, **kwargs)
+        result = yield self._internal_op(**kwargs)
+        yield self._trigger_signal(signal_to_trigger=self.post_signal, sender=self._parent, op_result=result, **kwargs)
+        raise ndb.Return(result)
 
 
-class BaseRPCMethod(BaseApiMethod):
-    def __init__(self, resource_name, **kwargs):
-        self.resource_name = resource_name
-        super(BaseRPCMethod, self).__init__(**kwargs)
-
-    def _create_signals(self):
-        self.pre_name = 'pre_{}_{}'.format(self.resource_name, self.code_name)
-        self.post_name = 'post_{}_{}'.format(self.resource_name, self.code_name)
-
-        self.pre_signal = signal(self.pre_name)
-        self.post_signal = signal(self.post_name)
-
-    @async
-    def _internal_op(self, **kwargs):
-        raise NotImplementedError
-
+class RPCMethod(Method):
     @async
     def __call__(self, **kwargs):
         """
-        SPI methods are very simple. They simply emit signal which you can receive and act upon. By default
-        there are two signals: pre and post.
+        This is basically the same as the parent class except we use self as the sender instead of the parent object
 
         :param kwargs:
         :return:
@@ -183,16 +145,6 @@ class BaseRPCMethod(BaseApiMethod):
         result = yield self._internal_op(**kwargs)
         yield self._trigger_signal(signal_to_trigger=self.post_signal, sender=self, op_result=result, **kwargs)
         raise ndb.Return(result)
-
-
-class RPCMethodMock(BaseRPCMethod):
-    def __init__(self, resource_name, **kwargs):
-        self.resource_name = resource_name
-        super(RPCMethodMock, self).__init__(**kwargs)
-
-    @async
-    def _internal_op(self, **kwargs):
-        raise ndb.Return('Successfully called `{}` `{}` RPC Mock Method'.format(self.resource_name, self.code_name))
 
 
 class BaseRPCClient(Component):
@@ -210,7 +162,7 @@ class RPCClientMock(BaseRPCClient):
 
     def _create_methods(self, methods, **kwargs):
         for method in methods:
-            setattr(self, method, RPCMethodMock(code_name=method, **kwargs))
+            setattr(self, method, RPCMethod(code_name=method, **kwargs))
 
 
 class BaseAPI(Component):
@@ -243,7 +195,7 @@ class BaseAPI(Component):
 
 
 class ResourceApi(BaseAPI):
-    def __init__(self, default_api_method_class=APIMethod, **kwargs):
+    def __init__(self, default_api_method_class=Method, **kwargs):
         """
         The only difference from the base class is that we automatically create async api methods based on the provided
         list of methods. The methods are set as attributes.
@@ -254,7 +206,7 @@ class ResourceApi(BaseAPI):
 
         if self.methods is not None:
             for method in self.methods:
-                setattr(self, method, default_api_method_class(code_name=method, parent_api=self))
+                setattr(self, method, default_api_method_class(code_name=method, parent=self))
 
 
 @async
@@ -407,7 +359,7 @@ SEARCH_METHODS = BASE_METHODS + ['search']
 GAE_METHODS = BASE_METHODS + ['query', 'search']
 
 
-def init_api(api_name, api_def, parent=None, default_api=GaeApi, default_methods=GAE_METHODS,
+def init_api(api_name, api_def, parent=None, default_api=ResourceApi, default_methods=GAE_METHODS,
              resource_mock=ResourceMock):
     try:
         # sub apis should not be passed to the api constructor.
@@ -417,7 +369,7 @@ def init_api(api_name, api_def, parent=None, default_api=GaeApi, default_methods
 
     default_api_config = {
         'code_name': api_name,
-        'base_path': parent._path,
+        'parent': parent,
         'type': default_api,
         'methods': default_methods,
         'resource_model': resource_mock,
@@ -456,7 +408,8 @@ def walk_the_api(api, api_map):
         for method in api.methods:
             api_map['methods'][method] = {}
             api_method = getattr(api, method)
-            api_map['methods'][method]['hooks'] = [api_method.pre_name, api_method.hook_name, api_method.post_name]
+            api_map['methods'][method]['pre_hook'] = api_method.pre_name
+            api_map['methods'][method]['post_hook'] = api_method.post_name
             api_map['methods'][method]['action'] = api_method.action_name
     except AttributeError:
         pass
@@ -474,7 +427,7 @@ def compile_security_config(api_map, actions, pre_hook_names):
     try:
         for method, method_details in api_map['methods'].iteritems():
             actions.add(method_details['action'])
-            pre_hook_names.add(method_details['hooks'][0])
+            pre_hook_names.add(method_details['pre_hook'])
     except AttributeError:
         pass
 
@@ -485,7 +438,7 @@ def compile_security_config(api_map, actions, pre_hook_names):
         pass
 
 
-def parse_api_config(api_definition, default_api=GaeApi, default_methods=GAE_METHODS, koala_security=True):
+def parse_api_config(api_definition, default_api=ResourceApi, default_methods=GAE_METHODS, koala_security=True):
     api = TopLevelAPI()
 
     for api_name, api_def in api_definition.iteritems():

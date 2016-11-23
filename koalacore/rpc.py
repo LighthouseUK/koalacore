@@ -21,7 +21,7 @@
 from blinker import signal
 import google.appengine.ext.ndb as ndb
 from google.appengine.api import search
-from .api import BaseRPCMethod, BaseRPCClient
+from .api import Method, BaseRPCClient
 from .tools import DictDiffer
 from .exceptions import UniqueValueRequired
 from .resource import ResourceUID
@@ -52,7 +52,7 @@ class UniqueValue(ndb.Model):
     pass
 
 
-class NDBMethod(BaseRPCMethod):
+class NDBMethod(Method):
     def __init__(self, uniques_value_model=UniqueValue, force_unique_parse=False, transaction_config=None, **kwargs):
         super(NDBMethod, self).__init__(**kwargs)
         if transaction_config is None:
@@ -415,7 +415,7 @@ def diff_resource_properties(source, target):
     return modified
 
 
-class SearchMethod(BaseRPCMethod):
+class SearchMethod(Method):
     def __init__(self, search_index, **kwargs):
         super(SearchMethod, self).__init__(**kwargs)
         self.search_index = search_index

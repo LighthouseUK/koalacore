@@ -19,7 +19,7 @@
 """
 import unittest
 from blinker import signal
-from koalacore.api import parse_api_config, APIMethod, BaseAPI
+from koalacore.api import parse_api_config, BaseAPI
 from koalacore.resource import Resource, StringProperty, ResourceUIDProperty, ResourceUID, DateProperty, DateTimeProperty, TimeProperty
 from koalacore.rpc import NDBDatastore, GAESearch, UniqueValueRequired, NDBInsert
 from google.appengine.ext import testbed
@@ -140,6 +140,32 @@ class AsyncSignalTester(object):
 
 
 class TestAPIConfigParserDefaults(unittest.TestCase):
+    def setUp(self):
+        self.testbed = testbed.Testbed()
+        self.testbed.activate()
+        self.testbed.init_datastore_v3_stub()
+        self.testbed.init_memcache_stub()
+        self.testbed.init_search_stub()
+        self.testbed.init_taskqueue_stub(root_path='./koalacore/tests')
+        self.task_queue = self.testbed.get_stub(testbed.TASKQUEUE_SERVICE_NAME)
+
+    def tearDown(self):
+        self.testbed.deactivate()
+
+    def build_api(self):
+        test_config = copy.deepcopy(test_def)
+        return parse_api_config(api_definition=test_config)
+
+    def test_config_parser(self):
+        test_api = self.build_api()
+
+        self.assertTrue(hasattr(test_api, 'companies'), 'Companies API is missing')
+        self.assertTrue(hasattr(test_api.companies, 'users'), 'Companies Users API is missing')
+        self.assertTrue(hasattr(test_api.companies, 'entries'), 'Companies Entries API is missing')
+        self.assertTrue(hasattr(test_api.companies.entries, 'results'), 'Companies Entries Results API is missing')
+
+
+class TestAPIConfigParser(unittest.TestCase):
     def setUp(self):
         self.testbed = testbed.Testbed()
         self.testbed.activate()
@@ -354,7 +380,7 @@ class TestResource(unittest.TestCase):
         pass
 
     def test_resource_method(self):
-        test = APIMethod(code_name='test', parent_api=BaseAPI(code_name='ParentAPI', resource_model=None))
+        test = APIMethodMock(code_name='test', parent_api=BaseAPI(code_name='ParentAPI', resource_model=None))
         result = pickle.dumps(test)
         # TODO: test SPIMethod
         # TODO: use functions for parsing config dicts, use wrapper to parse api class instantiation
