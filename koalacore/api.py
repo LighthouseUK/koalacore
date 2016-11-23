@@ -19,7 +19,7 @@
     See the License for the specific language governing permissions and
     limitations under the License.
 """
-
+import functools
 from blinker import signal
 from google.appengine.ext import deferred
 from .resource import ResourceMock
@@ -43,29 +43,21 @@ SECURITY_API_CONFIG = {
 
 def _parse_component_config(config, default_config):
     try:
-        return default_config.update(config)
+        default_config.update(config)
     except (KeyError, TypeError, AttributeError):
         # Missing key or explicitly set to none
-        return None
+        pass
+
+
+def _build_component(config):
+    component_type = config['type']
+    del config['type']
+    return component_type(**config)
 
 
 def _init_component(config, default_config):
-    try:
-        _parse_component_config(config=config, default_config=default_config)
-    except (KeyError, TypeError, AttributeError):
-        # Missing key or explicitly set to none
-        return None
-    else:
-        component_type = default_config['type']
-        del default_config['type']
-
-        try:
-            component = component_type(**default_config)
-        except TypeError:
-            # The supplied type is not instantiable
-            return None
-        else:
-            return component
+    _parse_component_config(config=config, default_config=default_config)
+    return _build_component(config=default_config)
 
 
 class TopLevelAPI(object):
@@ -83,17 +75,17 @@ class Component(object):
         self.code_name = code_name
         self._parent = parent
         self._path = '{}.{}'.format(self._parent._path, code_name)
+        self._full_name = '{}{}'.format(self.code_name, self._parent._path.replace('.', '_'))
 
 
 class Method(Component):
     def __init__(self, **kwargs):
         super(Method, self).__init__(**kwargs)
-        self.action_name = '{}{}'.format(self.code_name, self._parent._path.replace('.', '_'))
         self._create_signals()
 
     def _create_signals(self):
-        self.pre_name = 'pre_{}'.format(self.action_name)
-        self.post_name = 'post_{}'.format(self.action_name)
+        self.pre_name = 'pre_{}'.format(self._full_name)
+        self.post_name = 'post_{}'.format(self._full_name)
 
         self.pre_signal = signal(self.pre_name)
         self.post_signal = signal(self.post_name)
@@ -102,7 +94,7 @@ class Method(Component):
     def _trigger_signal(self, signal_to_trigger, sender, **kwargs):
         if bool(signal_to_trigger.receivers):
             kwargs['hook_name'] = signal_to_trigger.name
-            kwargs['action'] = self.action_name
+            kwargs['action'] = self._full_name
             for receiver in signal_to_trigger.receivers_for(sender=sender):
                 yield receiver(self, **kwargs)
 
@@ -113,7 +105,7 @@ class Method(Component):
         :param kwargs:
         :return:
         """
-        results = yield self._trigger_signal(signal_to_trigger=signal(self.action_name), sender=self._parent, **kwargs)
+        results = yield self._trigger_signal(signal_to_trigger=signal(self._full_name), sender=self._parent, **kwargs)
         # Result could be a list, depending on how many hooks you have setup. These will all be passed to the post hook
         # so that you can do further processing. However, callers of the API do not need these extra return values. We
         # simply return the first value in the list.
@@ -191,63 +183,14 @@ class ResourceApi(BaseAPI):
     pass
 
 
-class GaeInsertMethod(Method):
-    def __init__(self, **kwargs):
-        kwargs['code_name'] = 'insert'
-        super(GaeInsertMethod, self).__init__(**kwargs)
+class GaeMethod(Method):
+    def __init__(self, rpc_client, **kwargs):
+        self.rpc_client = rpc_client
+        super(GaeMethod, self).__init__(**kwargs)
 
     def _internal_op(self, **kwargs):
-        result = yield api.datastore.insert(**kwargs)
-        raise ndb.Return(result)
-
-
-class GaeGetMethod(Method):
-    def __init__(self, **kwargs):
-        kwargs['code_name'] = 'get'
-        super(GaeGetMethod, self).__init__(**kwargs)
-
-    def _internal_op(self, **kwargs):
-        result = yield api.datastore.get(**kwargs)
-        raise ndb.Return(result)
-
-
-class GaeUpdateMethod(Method):
-    def __init__(self, **kwargs):
-        kwargs['code_name'] = 'update'
-        super(GaeUpdateMethod, self).__init__(**kwargs)
-
-    def _internal_op(self, **kwargs):
-        result = yield api.datastore.update(**kwargs)
-        raise ndb.Return(result)
-
-
-class GaeDeleteMethod(Method):
-    def __init__(self, **kwargs):
-        kwargs['code_name'] = 'delete'
-        super(GaeDeleteMethod, self).__init__(**kwargs)
-
-    def _internal_op(self, **kwargs):
-        result = yield api.datastore.delete(**kwargs)
-        raise ndb.Return(result)
-
-
-class GaeQueryMethod(Method):
-    def __init__(self, **kwargs):
-        kwargs['code_name'] = 'query'
-        super(GaeQueryMethod, self).__init__(**kwargs)
-
-    def _internal_op(self, **kwargs):
-        result = yield api.datastore.query(**kwargs)
-        raise ndb.Return(result)
-
-
-class GaeSearchMethod(Method):
-    def __init__(self, **kwargs):
-        kwargs['code_name'] = 'search'
-        super(GaeSearchMethod, self).__init__(**kwargs)
-
-    def _internal_op(self, **kwargs):
-        result = yield api.search_index.search(**kwargs)
+        rpc_method = getattr(self.rpc_client, self.code_name)
+        result = yield rpc_method(**kwargs)
         raise ndb.Return(result)
 
 
@@ -264,58 +207,54 @@ class GaeAPI(ResourceApi):
         default_datastore_config = {
             'type': RPCClient,
             'resource_model': kwargs['resource_model'],
+            'parent': self,
+            'code_name': 'ndb_client',
         }
 
         default_search_config = {
             'type': RPCClient,
             'resource_model': kwargs['resource_model'],
+            'parent': self,
+            'code_name': 'search_client',
         }
 
         self.resource_update_queue = resource_update_queue
         self.search_update_queue = search_update_queue
 
-        self.datastore = _init_component(config=datastore_config, default_config=default_datastore_config)
-        self.search_index = _init_component(config=search_config, default_config=default_search_config)
+        _parse_component_config(config=datastore_config, default_config=default_datastore_config)
+        self.datastore_client_config = default_datastore_config
+
+        _parse_component_config(config=search_config, default_config=default_search_config)
+        self.search_client_config = default_search_config
 
         super(GaeAPI, self).__init__(**kwargs)
-        # Attach hooks to the methods
-        # signal('insert').connect(_insert, sender=self)
-        # signal('get').connect(_get, sender=self)
-        # signal('update').connect(_update, sender=self)
-        # signal('delete').connect(_delete, sender=self)
-        # signal('query').connect(_query, sender=self)
-        # signal('search').connect(_search, sender=self)
-        # Add hooks to update search index
-        # TODO: can't pickle the spi classes because of instance methods. Possibly add __getstate__ and __setstate__
-        # TODO: possibly use copy_reg to define methods used for pickling API/SPI methods
-        # the API methods work because they use signals to connect the internal op methods instead of being customized
-        # at run time. Potentially solve everything by converting the SPI methods to do the same thing? They could all
-        # share a base class? They are fundamentally similar; we're just providing an abstraction over the internal
-        # workings.
         # signal('post_insert').connect(self._test_hook, sender=self)
         # signal('post_update').connect(lambda **k: deferred.defer(self._update_search_index, _queue=self.search_update_queue, **k), sender=self)
         # signal('post_delete').connect(lambda **k: deferred.defer(self._delete_search_index, _queue=self.search_update_queue, **k), sender=self)
 
     def _create_methods(self, method_class):
-        self.insert = GaeInsertMethod(parent=self)
-        self.get = GaeGetMethod(parent=self)
-        self.update = GaeUpdateMethod(parent=self)
-        self.delete = GaeDeleteMethod(parent=self)
-        self.query = GaeQueryMethod(parent=self)
-        self.search = GaeSearchMethod(parent=self)
+        self.datastore_client = _build_component(config=self.datastore_client_config)
+        self.search_client = _build_component(config=self.search_client_config)
+
+        self.insert = GaeMethod(code_name='insert', parent=self, rpc_client=self.datastore_client)
+        self.get = GaeMethod(code_name='get', parent=self, rpc_client=self.datastore_client)
+        self.update = GaeMethod(code_name='update', parent=self, rpc_client=self.datastore_client)
+        self.delete = GaeMethod(code_name='delete', parent=self, rpc_client=self.datastore_client)
+        self.query = GaeMethod(code_name='query', parent=self, rpc_client=self.datastore_client)
+        self.search = GaeMethod(code_name='search', parent=self, rpc_client=self.search_client)
 
     def _test_hook(self, sender, result, **kwargs):
         deferred.defer(self._update_search_index, _queue=self.search_update_queue, result=result)
 
     def _update_search_index(self, result, **kwargs):
         resource = self.get(resource_uid=result).get_result()
-        self.search_index.insert(resource=resource.to_search_doc(), identity_uid='systemidentitykey', **kwargs)
+        self.search_client.insert(resource=resource.to_search_doc(), identity_uid='systemidentitykey', **kwargs)
 
     def _delete_search_index(self, result, **kwargs):
-        self.search_index.delete(resource_uid=result, identity_uid='systemidentitykey', **kwargs)
+        self.search_client.delete(resource_uid=result, identity_uid='systemidentitykey', **kwargs)
 
 
-class Security(GaeAPI):
+class Security(ResourceApi):
     def __init__(self, valid_actions, pre_hook_names, **kwargs):
         # Init the inode and securityid apis. The default values will be ok here. We need to rely on the NDB datastore
         # because of the implementation. It's ok if the resources themselves are kept elsewhere.
@@ -365,6 +304,37 @@ class Security(GaeAPI):
                 resource_uid = resource_object.uid
 
         yield self.authorize(identity_uid=identity_uid, resource_uid=resource_uid, **kwargs)
+
+sentinel = object()
+
+
+def rgetattr(obj, attr, default=sentinel):
+    """
+    Credit to unutbu on SO: http://stackoverflow.com/a/31174427/4596718
+    :param obj:
+    :param attr:
+    :param default:
+    :return:
+    """
+    if default is sentinel:
+        _getattr = getattr
+    else:
+        def _getattr(obj, name):
+            return getattr(obj, name, default)
+    return functools.reduce(_getattr, [obj]+attr.split('.'))
+
+
+def parse_api_path(api, path):
+    """
+    path should be a period delimited string e.g. .company.get
+    :param api:
+    :param path:
+    :return:
+    """
+    if path.startswith('.'):
+        path = path.lstrip('.')
+
+    return rgetattr(obj=api, attr=path)
 
 
 BASE_METHODS = ['insert', 'update', 'get', 'delete']
@@ -424,7 +394,7 @@ def walk_the_api(api, api_map):
             api_method = getattr(api, method)
             api_map['methods'][method]['pre_hook'] = api_method.pre_name
             api_map['methods'][method]['post_hook'] = api_method.post_name
-            api_map['methods'][method]['action'] = api_method.action_name
+            api_map['methods'][method]['full_name'] = api_method._full_name
     except AttributeError:
         pass
 
@@ -440,7 +410,7 @@ def walk_the_api(api, api_map):
 def compile_security_config(api_map, actions, pre_hook_names):
     try:
         for method, method_details in api_map['methods'].iteritems():
-            actions.add(method_details['action'])
+            actions.add(method_details['full_name'])
             pre_hook_names.add(method_details['pre_hook'])
     except AttributeError:
         pass

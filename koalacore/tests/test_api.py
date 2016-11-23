@@ -19,7 +19,7 @@
 """
 import unittest
 from blinker import signal
-from koalacore.api import parse_api_config, BaseAPI
+from koalacore.api import parse_api_config, parse_api_path
 from koalacore.resource import Resource, StringProperty, ResourceUIDProperty, ResourceUID, DateProperty, DateTimeProperty, TimeProperty
 from koalacore.rpc import NDBDatastore, GAESearch, UniqueValueRequired, NDBInsert
 from google.appengine.ext import testbed
@@ -163,6 +163,11 @@ class TestAPIConfigParserDefaults(unittest.TestCase):
         self.assertTrue(hasattr(test_api.companies, 'users'), 'Companies Users API is missing')
         self.assertTrue(hasattr(test_api.companies, 'entries'), 'Companies Entries API is missing')
         self.assertTrue(hasattr(test_api.companies.entries, 'results'), 'Companies Entries Results API is missing')
+
+    def test_path_parser(self):
+        test_api = self.build_api()
+        api_method = parse_api_path(api=test_api, path='.companies.get')
+        pass
 
 
 class TestAPIConfigParser(unittest.TestCase):
