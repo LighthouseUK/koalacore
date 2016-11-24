@@ -1,0 +1,20 @@
+# Very simple example config for the api task handler. You will need to copy this file into your project and make the
+# necessary changes. Alternately, you could copy everything below line 8 into your existing yaml file.
+application: example-app
+module: tasks
+version: 1
+runtime: python27
+api_version: 1
+threadsafe: yes
+
+# This definition lets us dynamically include `taskhandler.yaml`. Pay attention to the syntax here. You should only
+# modify `example.path.to.app`. You should specify the path to an instance of `tasks.TaskHandler`
+task_handler_path: &task_handler_path example.path.to.app
+# This definition includes the handler definition from `taskhandler.yaml`
+include:
+- taskhandler.yaml
+
+# TaskHandler required the webapp2 library to work
+libraries:
+- name: webapp2
+  version: latest

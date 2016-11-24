@@ -1,0 +1,8 @@
+handlers:
+# Simple handler setup for the API task handler. You can customise this to suit your needs but you *must* set `login`
+# to `admin`. The task handler should *not* handle user requests under any circumstances.
+- url: /.*
+  script: *task_handler_path
+  login: admin
+  secure: always
+  auth_fail_action: unauthorized
