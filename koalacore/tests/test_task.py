@@ -39,8 +39,8 @@ class TestTaskHandler(unittest.TestCase):
         self.testbed.init_taskqueue_stub(root_path='./koalacore/tests')
         self.task_queue = self.testbed.get_stub(testbed.TASKQUEUE_SERVICE_NAME)
 
-        self.testapp = TestApp(TaskHandler())
         self.test_api = self.build_api()
+        self.testapp = TestApp(TaskHandler(api_instance=self.test_api))
 
     def tearDown(self):
         self.testbed.deactivate()
@@ -74,11 +74,15 @@ class TestTaskHandler(unittest.TestCase):
         return parse_api_config(api_definition=test_config)
 
     def test_admin_only(self):
-        self.assertFalse(users.get_current_user())
+        # Note that `identity_uid` will be stripped from the request by the handler. We include it here to test that
+        # the parameter stripping works correctly.
         test_params = {
             'api_method': 'companies.get',
+            'identity_uid': 'shouldnevervalidate',
             'resource_uid': 'sdoigsfhgijdgjadjdgjsgfj',
         }
+
+        self.assertFalse(users.get_current_user())
         # Send request an make sure fails
         response = self.testapp.post('/_taskhandler', params=test_params, expect_errors=True)
         self.assertEqual(response.status_int, 401)
