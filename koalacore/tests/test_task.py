@@ -25,8 +25,34 @@ from blinker import signal
 from koalacore.api import parse_api_config, parse_api_path
 from google.appengine.ext import testbed
 from google.appengine.api import users
+import google.appengine.ext.ndb as ndb
 
 __author__ = 'Matt Badger'
+
+
+class AsyncSignalTester(object):
+
+    def __init__(self):
+        self.hook_activations = {}
+        self.hook_activations_count = 0
+        self.filter_activations = {}
+        self.filter_activations_count = 0
+
+    @ndb.tasklet
+    def hook_subscriber(self, sender, **kwargs):
+        hook_name = kwargs.get('hook_name', 'anonymous')
+
+        if hook_name not in self.hook_activations:
+            self.hook_activations[hook_name] = {}
+
+        try:
+            self.hook_activations[hook_name][sender].append(kwargs)
+        except (KeyError, AttributeError):
+            self.hook_activations[hook_name] = {
+                sender: [kwargs]
+            }
+
+        self.hook_activations_count += 1
 
 
 class TestTaskHandler(unittest.TestCase):
@@ -98,15 +124,26 @@ class TestTaskHandler(unittest.TestCase):
         response = self.testapp.post('/_taskhandler', params=test_params)
         self.assertEqual(response.status_int, 200)
 
-    # def test_request_received(self):
-    #     self.assertTrue(hasattr(test_api, 'companies'), 'Companies API is missing')
-    #     self.assertTrue(hasattr(test_api.companies, 'users'), 'Companies Users API is missing')
-    #     self.assertTrue(hasattr(test_api.companies, 'entries'), 'Companies Entries API is missing')
-    #     self.assertTrue(hasattr(test_api.companies.entries, 'results'), 'Companies Entries Results API is missing')
-    #
-    # def test_api_called(self):
-    #     # Connect to receiver in api method to ensure that it is called
-    #     self.assertTrue(hasattr(test_api, 'companies'), 'Companies API is missing')
-    #     self.assertTrue(hasattr(test_api.companies, 'users'), 'Companies Users API is missing')
-    #     self.assertTrue(hasattr(test_api.companies, 'entries'), 'Companies Entries API is missing')
-    #     self.assertTrue(hasattr(test_api.companies.entries, 'results'), 'Companies Entries Results API is missing')
+    def test_request_received(self):
+        test_params = {
+            'api_method': 'companies.get',
+            'identity_uid': 'shouldnevervalidate',
+            'resource_uid': 'sdoigsfhgijdgjadjdgjsgfj',
+        }
+
+        api_method = 'get'
+        method_instance = getattr(self.test_api.companies, api_method, False)
+        signal_tester_1 = AsyncSignalTester()
+
+        signal(method_instance.pre_name).connect(signal_tester_1.hook_subscriber, sender=self.test_api.companies)
+        signal(method_instance._full_name).connect(signal_tester_1.hook_subscriber, sender=self.test_api.companies)
+        signal(method_instance.post_name).connect(signal_tester_1.hook_subscriber, sender=self.test_api.companies)
+
+        self.loginUser(is_admin=True)
+        response = self.testapp.post('/_taskhandler', params=test_params)
+        self.assertEqual(response.status_int, 200)
+
+        self.assertEqual(signal_tester_1.hook_activations_count, 3, u'{} should trigger 3 hooks'.format(api_method))
+        self.assertEqual(len(signal_tester_1.hook_activations[method_instance.pre_name][method_instance]), 1, u'{} should trigger 1 pre hooks'.format(api_method))
+        self.assertEqual(len(signal_tester_1.hook_activations[method_instance._full_name][method_instance]), 1, u'{} should trigger 1 hooks'.format(api_method))
+        self.assertEqual(len(signal_tester_1.hook_activations[method_instance.post_name][method_instance]), 1, u'{} should trigger 1 post hooks'.format(api_method))

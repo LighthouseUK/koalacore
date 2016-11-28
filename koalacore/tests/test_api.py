@@ -209,8 +209,8 @@ class TestAPIConfigParser(unittest.TestCase):
 
             signal(method_instance.pre_name).connect(signal_tester_1.hook_subscriber, sender=test_api.companies)
             signal(method_instance.pre_name).connect(signal_tester_2.hook_subscriber, sender=test_api.companies)
-            signal(method_instance.action_name).connect(signal_tester_1.hook_subscriber, sender=test_api.companies)
-            signal(method_instance.action_name).connect(signal_tester_2.hook_subscriber, sender=test_api.companies)
+            signal(method_instance._full_name).connect(signal_tester_1.hook_subscriber, sender=test_api.companies)
+            signal(method_instance._full_name).connect(signal_tester_2.hook_subscriber, sender=test_api.companies)
             signal(method_instance.post_name).connect(signal_tester_1.hook_subscriber, sender=test_api.companies)
             signal(method_instance.post_name).connect(signal_tester_2.hook_subscriber, sender=test_api.companies)
             result_future = method_instance(resource_uid='testresourceid', identity_uid='thisisatestidentitykey')
@@ -218,10 +218,10 @@ class TestAPIConfigParser(unittest.TestCase):
 
             self.assertEqual(signal_tester_1.hook_activations_count, 3, u'{} should trigger 3 hooks'.format(api_method))
             self.assertEqual(len(signal_tester_1.hook_activations[method_instance.pre_name][method_instance]), 1, u'{} should trigger 1 pre hooks'.format(api_method))
-            self.assertEqual(len(signal_tester_1.hook_activations[method_instance.action_name][method_instance]), 1, u'{} should trigger 1 hooks'.format(api_method))
+            self.assertEqual(len(signal_tester_1.hook_activations[method_instance._full_name][method_instance]), 1, u'{} should trigger 1 hooks'.format(api_method))
             self.assertEqual(len(signal_tester_1.hook_activations[method_instance.post_name][method_instance]), 1, u'{} should trigger 1 post hooks'.format(api_method))
             self.assertEqual(len(signal_tester_2.hook_activations[method_instance.pre_name][method_instance]), 1, u'{} should trigger 1 pre hooks'.format(api_method))
-            self.assertEqual(len(signal_tester_2.hook_activations[method_instance.action_name][method_instance]), 1, u'{} should trigger 1 hooks'.format(api_method))
+            self.assertEqual(len(signal_tester_2.hook_activations[method_instance._full_name][method_instance]), 1, u'{} should trigger 1 hooks'.format(api_method))
             self.assertEqual(len(signal_tester_2.hook_activations[method_instance.post_name][method_instance]), 1, u'{} should trigger 1 post hooks'.format(api_method))
 
 
