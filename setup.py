@@ -11,5 +11,7 @@ setup(
     download_url='https://github.com/LighthouseUK/koalacore/tarball/0.1.5-alpha',  # I'll explain this in a second
     keywords=['gae', 'lighthouse'],  # arbitrary keywords
     classifiers=[],
-    requires=['six', 'blinker']
+    install_requires=['six', 'blinker', 'webapp2'],
+    tests_require=['WebTest'],
+    test_suite='pycharm_test_runner',
 )

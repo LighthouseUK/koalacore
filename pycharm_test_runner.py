@@ -3,11 +3,11 @@ This file is just a helper for running unittests in PyCharm.
 As the module test files are not in the root of the project the 'vendor' setups fom *.yaml break.
 Subsequently the unittest will fail to load as the dependencies are missing.
 """
-
 import unittest
+from koalacore.tests.test_task import TestTaskHandler
 # from koalacore.tests.test_api import TestResource
 # from koalacore.tests.test_api import TestGaeApi
-from koalacore.tests.test_api import TestAPIConfigParserDefaults
+# from koalacore.tests.test_api import TestAPIConfigParserDefaults
 # from koalacore.tests.test_api import TestAPIConfigParser
 # from koalacore.tests.test_api import *
 # from koalacore.tests.test_search import *
