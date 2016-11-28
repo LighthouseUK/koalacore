@@ -1,10 +1,17 @@
 import os
 import webapp2
+from google.appengine.api import users
 from koalacore.api import parse_api_path
 
 
 def task_runner(request, *args, **kwargs):
+    if not users.get_current_user():
+        webapp2.abort(code=401)
+
+    if not users.is_current_user_admin():
+        webapp2.abort(code=403)
     # api_method = parse_api_path(api=test_api, path=request.get('api_method'))
+    # Must enforce admin check because the unittest runner won't
     # TODO: authenticate as admin
     # TODO: take the requested api method and execute it with kwargs
     return webapp2.Response('Task ran successfully')

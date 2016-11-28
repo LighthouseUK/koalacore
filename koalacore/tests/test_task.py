@@ -80,13 +80,13 @@ class TestTaskHandler(unittest.TestCase):
             'resource_uid': 'sdoigsfhgijdgjadjdgjsgfj',
         }
         # Send request an make sure fails
-        response = self.testapp.post('/_taskhandler', params=test_params)
-        self.assertEqual(response.status_int, 200)
+        response = self.testapp.post('/_taskhandler', params=test_params, expect_errors=True)
+        self.assertEqual(response.status_int, 401)
 
         # Send request and make sure fails -- user but not admin
         self.loginUser()
-        response = self.testapp.post('/_taskhandler', params=test_params)
-        self.assertEqual(response.status_int, 200)
+        response = self.testapp.post('/_taskhandler', params=test_params, expect_errors=True)
+        self.assertEqual(response.status_int, 403)
 
         # Send request and make sure passes
         self.loginUser(is_admin=True)
