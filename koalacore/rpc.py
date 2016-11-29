@@ -53,15 +53,15 @@ class UniqueValue(ndb.Model):
 
 
 class NDBMethod(Method):
-    def __init__(self, uniques_value_model=UniqueValue, force_unique_parse=False, transaction_config=None, **kwargs):
+    def __init__(self, resource_name, uniques_value_model=UniqueValue, force_unique_parse=False, transaction_config=None, **kwargs):
         super(NDBMethod, self).__init__(**kwargs)
         if transaction_config is None:
             transaction_config = {
                 'xg': True
             }
+        self.resource_name = resource_name
         self.uniques_value_model = uniques_value_model
         self.force_unique_parse = force_unique_parse
-        self._internal_op_async = async(self._internal_op)
         self._internal_op_async_transactional = ndb.transactional_tasklet(**transaction_config)(self._internal_op)
 
     def _transaction_receivers(self):
@@ -370,11 +370,12 @@ class NDBDatastore(RPCClient):
 
     def __init__(self, **kwargs):
         super(NDBDatastore, self).__init__(**kwargs)
+        resource_name = self.resource_model.__name__
         # TODO: need to allow config of methods; pass config to init?
-        self.insert = NDBInsert(resource_name=self.resource_name)
-        self.get = NDBGet(resource_name=self.resource_name)
-        self.update = NDBUpdate(resource_name=self.resource_name)
-        self.delete = NDBDelete(resource_name=self.resource_name)
+        self.insert = NDBInsert(parent=self, resource_name=resource_name)
+        self.get = NDBGet(parent=self, resource_name=resource_name)
+        self.update = NDBUpdate(parent=self, resource_name=resource_name)
+        self.delete = NDBDelete(parent=self, resource_name=resource_name)
 
     def build_resource_uid(self, desired_id, parent=None, namespace=None, urlsafe=True):
         # TODO: fix this for new resource model
@@ -595,7 +596,11 @@ class SearchQuery(SearchMethod):
         )
 
         query = search.Query(query_string=query_string, options=options)
-        search_result = yield self.search_index.search_async(query=query)
+        # search_result = yield self.search_index.search_async(query=query)
+        # If we yield then everything breaks; apparently yielding on search_async is not supported.
+        # TODO: find work-around
+        search_result_future = self.search_index.search_async(query=query)
+        search_result = search_result_future.get_result()
 
         result_cursor = None
         parsed_results = []
@@ -629,29 +634,31 @@ class SearchQuery(SearchMethod):
         raise ndb.Return(result)
 
 
-class GAESearch(object):
+class GAESearch(RPCClient):
 
-    def __init__(self, resource_model, index_name=None, result_model=Result, search_results_model=SearchResults, **kwargs):
+    def __init__(self, index_name=None, result_model=Result, search_results_model=SearchResults, **kwargs):
+        super(GAESearch, self).__init__(**kwargs)
         if index_name is None:
-            index_name = resource_model.__name__
-
-        resource_name = resource_model.__name__
+            index_name = self.resource_model.__name__
 
         self.index_name = index_name
 
         self.search_index = Index(name=self.index_name)
-        resource_repeated_properties = None
 
-        if resource_model is not None:
-            resource_repeated_properties = set(resource_property._code_name for short_name, resource_property in resource_model._properties.iteritems() if resource_property._repeated)
-
-        self.insert = SearchInsert(search_index=self.search_index, resource_name=resource_name)
-        self.get = SearchGet(search_index=self.search_index, resource_name=resource_name)
-        self.update = SearchUpdate(search_index=self.search_index, resource_name=resource_name)
-        self.delete = SearchDelete(search_index=self.search_index, resource_name=resource_name)
+        self.insert = SearchInsert(search_index=self.search_index, parent=self)
+        self.get = SearchGet(search_index=self.search_index, parent=self)
+        self.update = SearchUpdate(search_index=self.search_index, parent=self)
+        self.delete = SearchDelete(search_index=self.search_index, parent=self)
         # The main method!
         self.search = SearchQuery(search_index=self.search_index,
-                                  repeated_properties=resource_repeated_properties,
+                                  repeated_properties=self.find_repeated_properties(),
                                   result_model=result_model,
                                   search_results_model=search_results_model,
-                                  resource_name=resource_name)
+                                  parent=self)
+        pass
+
+    def find_repeated_properties(self):
+        if self.resource_model is not None:
+            return set(resource_property._code_name for short_name, resource_property in self.resource_model._properties.iteritems() if resource_property._repeated)
+        else:
+            return None

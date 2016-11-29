@@ -81,6 +81,7 @@ class Component(object):
 class Method(Component):
     def __init__(self, **kwargs):
         super(Method, self).__init__(**kwargs)
+        self._internal_op_async = async(self._internal_op)
         self._create_signals()
 
     def _create_signals(self):
@@ -125,7 +126,7 @@ class Method(Component):
         :return:
         """
         yield self._trigger_signal(signal_to_trigger=self.pre_signal, sender=self._parent, **kwargs)
-        result = yield async(self._internal_op)(**kwargs)
+        result = yield self._internal_op_async(**kwargs)
         yield self._trigger_signal(signal_to_trigger=self.post_signal, sender=self._parent, op_result=result, **kwargs)
         raise ndb.Return(result)
 
@@ -140,7 +141,7 @@ class RPCMethod(Method):
         :return:
         """
         yield self._trigger_signal(signal_to_trigger=self.pre_signal, sender=self, **kwargs)
-        result = yield self._internal_op(**kwargs)
+        result = yield self._internal_op_async(**kwargs)
         yield self._trigger_signal(signal_to_trigger=self.post_signal, sender=self, op_result=result, **kwargs)
         raise ndb.Return(result)
 

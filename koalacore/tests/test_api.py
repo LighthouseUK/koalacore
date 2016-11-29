@@ -19,7 +19,7 @@
 """
 import unittest
 from blinker import signal
-from koalacore.api import parse_api_config, parse_api_path
+from koalacore.api import parse_api_config, parse_api_path, GaeAPI
 from koalacore.resource import Resource, StringProperty, ResourceUIDProperty, ResourceUID, DateProperty, DateTimeProperty, TimeProperty
 from koalacore.rpc import NDBDatastore, GAESearch, UniqueValueRequired, NDBInsert
 from google.appengine.ext import testbed
@@ -262,15 +262,14 @@ class TestGaeApi(unittest.TestCase):
         ndb.get_context().clear_cache()
         self.api_config = {
             'companies': {
+                'type': GaeAPI,
                 'strict_parent': False,
                 'resource_model': INode,
-                'spi_config': {
-                    'datastore_config': {
-                        'type': NDBDatastore,
-                    },
-                    'search_config': {
-                        'type': GAESearch,
-                    }
+                'datastore_config': {
+                    'type': NDBDatastore,
+                },
+                'search_config': {
+                    'type': GAESearch,
                 },
                 'sub_apis': {
                     'users': {
@@ -307,7 +306,7 @@ class TestGaeApi(unittest.TestCase):
         while tasks:
             tasks = self.task_queue.get_filtered_tasks()
 
-        search_result_future = test_api.companies.search(query_string='file_name: {}'.format(test_resource.file_name))
+        search_result_future = test_api.companies.search(identity_uid='thisisatestidentitykey', query_string='file_name: {}'.format(test_resource.file_name))
         search_result = search_result_future.get_result()
         self.assertEqual(search_result.results_count, 1, u'Query returned incorrect count')
         self.assertEqual(len(search_result.results), 1, u'Query returned incorrect number of results')
@@ -409,7 +408,7 @@ class TestGaeApi(unittest.TestCase):
         self.assertFalse(result, u'Resource should have been deleted')
 
         # Check that the unique value locks have been removed by trying to insert them again
-        insert_future = test_api.companies.insert(resource=test_resource_2, identity_uid='thisisatestidentitykey', use_cache=False, use_memcache=False)
-        resource_uid_2 = insert_future.get_result()
+        insert_future_2 = test_api.companies.insert(resource=test_resource_2, identity_uid='thisisatestidentitykey', use_cache=False, use_memcache=False)
+        resource_uid_2 = insert_future_2.get_result()
 
         self.assertTrue(resource_uid_2, u'Unique lock check failed after delete')

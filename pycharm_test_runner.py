@@ -23,11 +23,11 @@ def fix_sys_path():
 fix_sys_path()
 
 import unittest
-from koalacore.tests.test_task import TestTaskHandler
-from koalacore.tests.test_api import TestResource
+# from koalacore.tests.test_task import TestTaskHandler
+# from koalacore.tests.test_api import TestResource
 from koalacore.tests.test_api import TestGaeApi
-from koalacore.tests.test_api import TestAPIConfigParserDefaults
-from koalacore.tests.test_api import TestAPIConfigParser
+# from koalacore.tests.test_api import TestAPIConfigParserDefaults
+# from koalacore.tests.test_api import TestAPIConfigParser
 
 
 __author__ = 'Matt'
