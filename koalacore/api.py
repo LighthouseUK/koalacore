@@ -21,9 +21,9 @@
 """
 import functools
 from blinker import signal
-from google.appengine.ext import deferred
 from .resource import ResourceMock
 import google.appengine.ext.ndb as ndb
+from google.appengine.api import taskqueue
 
 __author__ = 'Matt Badger'
 
@@ -146,7 +146,7 @@ class RPCMethod(Method):
 
 
 class BaseAPI(Component):
-    def __init__(self, resource_model, methods=None, children=None, method_class=Method, **kwargs):
+    def __init__(self, resource_model, methods=None, children=None, method_class=Method, task_queue_path='/_taskhandler', default_task_queue='deferredwork', **kwargs):
         """
         code_name is the name of the API, taken from the api config.
 
@@ -160,6 +160,8 @@ class BaseAPI(Component):
         super(BaseAPI, self).__init__(**kwargs)
         self.resource_model = resource_model
         self.methods = methods
+        self.task_queue_path = task_queue_path
+        self.default_task_queue = default_task_queue
 
         if children is None:
             self.children = []
@@ -172,6 +174,23 @@ class BaseAPI(Component):
         if self.methods is not None:
             for method in self.methods:
                 setattr(self, method, method_class(code_name=method, parent=self))
+
+    def defer(self, payload, queue_name=None, **kwargs):
+        """
+        Kwargs can be any additional arguments that you would normally pass to taskqueue.add()
+
+        Payload must contain 'api_method_path' of the form `company.get`. This will be parsed by the deferred task
+        handler.
+
+        :param payload:
+        :param queue_name:
+        :param kwargs:
+        :return:
+        """
+        if queue_name is None:
+            queue_name = self.default_task_queue
+
+        taskqueue.add(url=self.task_queue_path, payload=payload, queue_name=queue_name, **kwargs)
 
 
 class RPCClient(BaseAPI):
@@ -344,7 +363,7 @@ GAE_METHODS = BASE_METHODS + ['query', 'search']
 
 
 def init_api(api_name, api_def, parent=None, default_api=ResourceApi, default_methods=GAE_METHODS,
-             resource_mock=ResourceMock):
+             resource_mock=ResourceMock, default_task_queue_path='/_taskhandler', default_task_queue='deferredwork'):
     try:
         # sub apis should not be passed to the api constructor.
         sub_api_defs = api_def['sub_apis']
@@ -357,6 +376,8 @@ def init_api(api_name, api_def, parent=None, default_api=ResourceApi, default_me
         'type': default_api,
         'methods': default_methods,
         'resource_model': resource_mock,
+        'task_queue_path': default_task_queue_path,
+        'default_task_queue': default_task_queue,
     }
 
     # This could raise a number of exceptions. Rather than swallow them we will let them bubble to the top;
@@ -422,7 +443,9 @@ def compile_security_config(api_map, actions, pre_hook_names):
         pass
 
 
-def parse_api_config(api_definition, default_api=ResourceApi, default_methods=GAE_METHODS, koala_security=True):
+def parse_api_config(api_definition, default_api=ResourceApi, default_methods=GAE_METHODS, koala_security=True,
+                     resource_mock=ResourceMock, default_task_queue_path='/_taskhandler',
+                     default_task_queue='deferredwork'):
     api = TopLevelAPI()
 
     for api_name, api_def in api_definition.iteritems():
@@ -430,7 +453,10 @@ def parse_api_config(api_definition, default_api=ResourceApi, default_methods=GA
                  api_def=api_def,
                  parent=api,
                  default_api=default_api,
-                 default_methods=default_methods)
+                 default_methods=default_methods,
+                 resource_mock=resource_mock,
+                 default_task_queue_path=default_task_queue_path,
+                 default_task_queue=default_task_queue)
         api.children.append(api_name)
 
     api_map = {}

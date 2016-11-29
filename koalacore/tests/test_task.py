@@ -103,7 +103,7 @@ class TestTaskHandler(unittest.TestCase):
         # Note that `identity_uid` will be stripped from the request by the handler. We include it here to test that
         # the parameter stripping works correctly.
         test_params = {
-            'api_method': 'companies.get',
+            'api_method_path': 'companies.get',
             'identity_uid': 'shouldnevervalidate',
             'resource_uid': 'sdoigsfhgijdgjadjdgjsgfj',
         }
@@ -126,7 +126,7 @@ class TestTaskHandler(unittest.TestCase):
 
     def test_request_received(self):
         test_params = {
-            'api_method': 'companies.get',
+            'api_method_path': 'companies.get',
             'identity_uid': 'shouldnevervalidate',
             'resource_uid': 'sdoigsfhgijdgjadjdgjsgfj',
         }

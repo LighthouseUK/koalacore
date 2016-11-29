@@ -139,6 +139,12 @@ class AsyncSignalTester(object):
         self.hook_activations_count += 1
 
 
+def build_api(api_config=None, **overrides):
+    if api_config is None:
+        api_config = copy.deepcopy(test_def)
+    return parse_api_config(api_definition=api_config, **overrides)
+
+
 class TestAPIConfigParserDefaults(unittest.TestCase):
     def setUp(self):
         self.testbed = testbed.Testbed()
@@ -152,12 +158,8 @@ class TestAPIConfigParserDefaults(unittest.TestCase):
     def tearDown(self):
         self.testbed.deactivate()
 
-    def build_api(self):
-        test_config = copy.deepcopy(test_def)
-        return parse_api_config(api_definition=test_config)
-
     def test_config_parser(self):
-        test_api = self.build_api()
+        test_api = build_api()
 
         self.assertTrue(hasattr(test_api, 'companies'), 'Companies API is missing')
         self.assertTrue(hasattr(test_api.companies, 'users'), 'Companies Users API is missing')
@@ -165,7 +167,7 @@ class TestAPIConfigParserDefaults(unittest.TestCase):
         self.assertTrue(hasattr(test_api.companies.entries, 'results'), 'Companies Entries Results API is missing')
 
     def test_path_parser(self):
-        test_api = self.build_api()
+        test_api = build_api()
         api_method = parse_api_path(api=test_api, path='.companies.get')
         pass
 
@@ -183,12 +185,8 @@ class TestAPIConfigParser(unittest.TestCase):
     def tearDown(self):
         self.testbed.deactivate()
 
-    def build_api(self):
-        test_config = copy.deepcopy(test_def)
-        return parse_api_config(api_definition=test_config)
-
     def test_config_parser(self):
-        test_api = self.build_api()
+        test_api = build_api()
 
         self.assertTrue(hasattr(test_api, 'companies'), 'Companies API is missing')
         self.assertTrue(hasattr(test_api.companies, 'users'), 'Companies Users API is missing')
@@ -196,7 +194,7 @@ class TestAPIConfigParser(unittest.TestCase):
         self.assertTrue(hasattr(test_api.companies.entries, 'results'), 'Companies Entries Results API is missing')
 
     def test_companies_methods(self):
-        test_api = self.build_api()
+        test_api = build_api()
 
         self.assertTrue(hasattr(test_api.companies, 'users'), 'Companies Users API is missing')
 
@@ -262,12 +260,7 @@ class TestGaeApi(unittest.TestCase):
         self.testbed.init_taskqueue_stub(root_path='./koalacore/tests')
         self.task_queue = self.testbed.get_stub(testbed.TASKQUEUE_SERVICE_NAME)
         ndb.get_context().clear_cache()
-
-    def tearDown(self):
-        self.testbed.deactivate()
-
-    def build_api(self):
-        ndb_api_config = {
+        self.api_config = {
             'companies': {
                 'strict_parent': False,
                 'resource_model': INode,
@@ -294,10 +287,12 @@ class TestGaeApi(unittest.TestCase):
                 },
             }
         }
-        return parse_api_config(api_definition=ndb_api_config)
+
+    def tearDown(self):
+        self.testbed.deactivate()
 
     def test_insert_resource(self):
-        test_api = self.build_api()
+        test_api = build_api(api_config=self.api_config)
         test_resource = INode(file_name='examplefilename', key_test=[ResourceUID(raw=ndb.Key(INodeResource, 'test1')),
                                                                      ResourceUID(raw=ndb.Key(INodeResource, 'test2'))])
 
@@ -318,7 +313,7 @@ class TestGaeApi(unittest.TestCase):
         self.assertEqual(len(search_result.results), 1, u'Query returned incorrect number of results')
 
     def test_insert_resource_unique_colission(self):
-        test_api = self.build_api()
+        test_api = build_api(api_config=self.api_config)
         test_resource = INode(file_name='examplefilename', key_test=[ResourceUID(raw=ndb.Key(INodeResource, 'test1')),
                                                                      ResourceUID(raw=ndb.Key(INodeResource, 'test2'))])
 
@@ -334,7 +329,7 @@ class TestGaeApi(unittest.TestCase):
         # TODO: test that the resource is not partially committed
 
     def test_get_resource(self):
-        test_api = self.build_api()
+        test_api = build_api(api_config=self.api_config)
         test_resource = INode(file_name='examplefilename', key_test=[ResourceUID(raw=ndb.Key(INodeResource, 'test1')),
                                                                      ResourceUID(raw=ndb.Key(INodeResource, 'test2'))])
 
@@ -358,7 +353,7 @@ class TestGaeApi(unittest.TestCase):
                                  u'`{}` value mismatch'.format(code_name))
 
     def test_update_resource(self):
-        test_api = self.build_api()
+        test_api = build_api(api_config=self.api_config)
         test_resource = INode(file_name='examplefilename', key_test=[ResourceUID(raw=ndb.Key(INodeResource, 'test1')),
                                                                      ResourceUID(raw=ndb.Key(INodeResource, 'test2'))])
 
@@ -387,7 +382,7 @@ class TestGaeApi(unittest.TestCase):
                                  u'`{}` value mismatch'.format(code_name))
 
     def test_delete_resource(self):
-        test_api = self.build_api()
+        test_api = build_api(api_config=self.api_config)
         test_resource = INode(file_name='examplefilename', key_test=[ResourceUID(raw=ndb.Key(INodeResource, 'test1')),
                                                                      ResourceUID(raw=ndb.Key(INodeResource, 'test2'))])
         test_resource_2 = INode(file_name='examplefilename', key_test=[ResourceUID(raw=ndb.Key(INodeResource, 'test1')),

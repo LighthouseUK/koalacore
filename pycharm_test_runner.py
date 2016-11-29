@@ -24,14 +24,11 @@ fix_sys_path()
 
 import unittest
 from koalacore.tests.test_task import TestTaskHandler
-# from koalacore.tests.test_api import TestResource
-# from koalacore.tests.test_api import TestGaeApi
-# from koalacore.tests.test_api import TestAPIConfigParserDefaults
-# from koalacore.tests.test_api import TestAPIConfigParser
-# from koalacore.tests.test_api import *
-# from koalacore.tests.test_search import *
+from koalacore.tests.test_api import TestResource
+from koalacore.tests.test_api import TestGaeApi
+from koalacore.tests.test_api import TestAPIConfigParserDefaults
+from koalacore.tests.test_api import TestAPIConfigParser
 
-# TODO: Import your tests so that they run automatically when we invoke this file from pycharm
 
 __author__ = 'Matt'
 

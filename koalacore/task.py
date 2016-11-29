@@ -61,21 +61,21 @@ def task_runner(request, api_instance):
 
     method_params = filter_unwanted_params(request_params=request.params, unwanted=['identity_uid'])
 
-    api_method = parse_api_path(api=api_instance, path=request.get('api_method'))
+    api_method_path = parse_api_path(api=api_instance, path=request.get('api_method_path'))
 
     # TODO: authenticate as admin and add identity_uid to method_params
     method_params['identity_uid'] = 'thisisobviouslyatest'
 
-    result_future = api_method(**method_params)
+    result_future = api_method_path(**method_params)
     result = result_future.get_result()
 
-    logging.debug(u"`{}` called with: \n{}\nResult: {}".format(request.get('api_method'), method_params, result))
+    logging.debug(u"`{}` called with: \n{}\nResult: {}".format(request.get('api_method_path'), method_params, result))
 
     return webapp2.Response('Task ran successfully')
 
 
 class TaskHandler(webapp2.WSGIApplication):
-    def __init__(self, api_instance, debug=None, webapp2_config=None):
+    def __init__(self, api_instance, task_handler_path='/_taskhandler', debug=None, webapp2_config=None):
         if debug is None:
             try:
                 debug = os.environ['SERVER_SOFTWARE'].startswith('Dev')
@@ -89,7 +89,7 @@ class TaskHandler(webapp2.WSGIApplication):
         self.router.set_dispatcher(task_runner_dispatcher)
         self.router.set_adapter(task_runner_adapter)
 
-        self.router.add(webapp2.Route(template='/_taskhandler', name='default', handler=task_runner, methods=['POST']))
+        self.router.add(webapp2.Route(template=task_handler_path, name='default', handler=task_runner, methods=['POST']))
 
     def __call__(self, environ, start_response):
         """Called by WSGI when a request comes in.
