@@ -1559,7 +1559,7 @@ class Resource(ndb.Expando):
                 A name contained in both include and exclude is excluded.
             """
         return Document(
-            doc_id=self.uid.__unicode__,
+            doc_id=self.uid.__unicode__(),
             fields=self.to_searchable_properties(include=include, exclude=exclude)
         )
 

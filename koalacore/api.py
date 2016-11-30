@@ -177,7 +177,7 @@ class BaseAPI(Component):
             for method in self.methods:
                 setattr(self, method, method_class(code_name=method, parent=self))
 
-    def defer(self, payload, queue_name=None, **kwargs):
+    def defer(self, payload, queue_name=None, transactional=False, **kwargs):
         """
         Kwargs can be any additional arguments that you would normally pass to taskqueue.add()
 
@@ -186,6 +186,7 @@ class BaseAPI(Component):
 
         :param payload:
         :param queue_name:
+        :param transactional:
         :param kwargs:
         :return:
         """
@@ -193,19 +194,16 @@ class BaseAPI(Component):
             queue_name = self.default_task_queue
 
         pickled_payload = pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL)
+        task = taskqueue.Task(payload=pickled_payload, **kwargs)
+        task.add(queue_name, transactional=transactional)
 
-        taskqueue.add(url=self.task_queue_path, payload=pickled_payload, queue_name=queue_name, **kwargs)
-
-    def _parse_defer_payload(self):
-        pass
-
-    def defer_lambda(self, api_method_path, **kwargs):
+    def defer_lambda(self, api_method_path, queue_name=None, **kwargs):
         payload = {
             'api_method_path': api_method_path
         }
 
         payload.update(kwargs)
-        self.defer(payload=payload)
+        self.defer(payload=payload, queue_name=queue_name)
 
 
 class RPCClient(BaseAPI):
@@ -262,9 +260,9 @@ class GaeAPI(ResourceApi):
         self.search_client_config = default_search_config
 
         super(GaeAPI, self).__init__(**kwargs)
-        signal(self.insert.post_name).connect(lambda s, **k: self.defer_lambda(api_method_path='companies._update_search_index', **k), sender=self, weak=False)
-        signal(self.update.post_name).connect(lambda s, **k: self.defer_lambda(api_method_path='companies._update_search_index', **k), sender=self, weak=False)
-        signal(self.delete.post_name).connect(lambda s, **k: self.defer_lambda(api_method_path='companies._delete_search_index', **k), sender=self, weak=False)
+        signal(self.insert.post_name).connect(async(lambda s, op_result, **k: self.defer_lambda(api_method_path='companies._update_search_index', queue_name=self.search_update_queue, resource_uid=op_result)), sender=self, weak=False)
+        signal(self.update.post_name).connect(async(lambda s, op_result, **k: self.defer_lambda(api_method_path='companies._update_search_index', queue_name=self.search_update_queue, resource_uid=op_result)), sender=self, weak=False)
+        signal(self.delete.post_name).connect(async(lambda s, op_result, **k: self.defer_lambda(api_method_path='companies._delete_search_index', queue_name=self.search_update_queue, resource_uid=op_result)), sender=self, weak=False)
 
     def _create_methods(self, method_class):
         self.datastore_client = _build_component(config=self.datastore_client_config)
@@ -277,15 +275,12 @@ class GaeAPI(ResourceApi):
         self.query = GaeMethod(code_name='query', parent=self, rpc_client=self.datastore_client)
         self.search = GaeMethod(code_name='search', parent=self, rpc_client=self.search_client)
 
-    def test_hook(self, *args, **kwargs):
-        pass
+    def _update_search_index(self, resource_uid, **kwargs):
+        resource = self.get(resource_uid=resource_uid, **kwargs).get_result()
+        return self.search_client.insert(resource=resource.to_search_doc(), **kwargs)
 
-    def _update_search_index(self, result, **kwargs):
-        resource = self.get(resource_uid=result).get_result()
-        self.search_client.insert(resource=resource.to_search_doc(), identity_uid='systemidentitykey', **kwargs)
-
-    def _delete_search_index(self, result, **kwargs):
-        self.search_client.delete(resource_uid=result, identity_uid='systemidentitykey', **kwargs)
+    def _delete_search_index(self, resource_uid, **kwargs):
+        return self.search_client.delete(resource_uid=resource_uid, **kwargs)
 
 
 class Security(ResourceApi):

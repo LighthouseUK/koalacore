@@ -421,13 +421,31 @@ class SearchMethod(Method):
         super(SearchMethod, self).__init__(**kwargs)
         self.search_index = search_index
 
+    def _parse_context_options(self, config_input):
+        acceptable = {
+        }
+        return {k: config_input[k] for k in config_input.viewkeys() & acceptable.viewkeys()}
+
+    @async
+    def __call__(self, **kwargs):
+        """
+        Methods are very simple. They simply emit signal which you can receive and act upon, both before and after the
+        internal op is executed.
+
+        :param kwargs:
+        :return:
+        """
+        kwargs['context_config'] = self._parse_context_options(kwargs)
+        result = yield super(SearchMethod, self).__call__(**kwargs)
+        raise ndb.Return(result)
+
 
 class SearchInsert(SearchMethod):
     def __init__(self, **kwargs):
         kwargs['code_name'] = 'insert'
         super(SearchInsert, self).__init__(**kwargs)
 
-    def _internal_op(self, resource, **kwargs):
+    def _internal_op(self, resource, context_config, **kwargs):
         """
         Insert search_doc into the Search index.
 
@@ -438,7 +456,7 @@ class SearchInsert(SearchMethod):
         :param kwargs:
         :returns future (key for the inserted search doc):
         """
-        result = yield self.search_index.put_async(resource, **kwargs)
+        result = yield self.search_index.put_async(resource, **context_config)
         raise ndb.Return(result)
 
 
@@ -447,7 +465,7 @@ class SearchGet(SearchMethod):
         kwargs['code_name'] = 'get'
         super(SearchGet, self).__init__(**kwargs)
 
-    def _internal_op(self, resource_uid, **kwargs):
+    def _internal_op(self, resource_uid, context_config, **kwargs):
         """
         Get model from the Search index.
 
@@ -455,7 +473,7 @@ class SearchGet(SearchMethod):
         :param kwargs:
         :returns future (key for the inserted search doc):
         """
-        result = yield self.search_index.get_async(resource_uid, **kwargs)
+        result = yield self.search_index.get_async(resource_uid, **context_config)
         raise ndb.Return(result)
 
 
@@ -464,7 +482,7 @@ class SearchUpdate(SearchMethod):
         kwargs['code_name'] = 'update'
         super(SearchUpdate, self).__init__(**kwargs)
 
-    def _internal_op(self, resource, **kwargs):
+    def _internal_op(self, resource, context_config, **kwargs):
         """
         Update model in the Search index.
 
@@ -472,7 +490,7 @@ class SearchUpdate(SearchMethod):
         :param kwargs:
         :returns future (key for the inserted search doc):
         """
-        result = yield self.search_index.put_async(resource, **kwargs)
+        result = yield self.search_index.put_async(resource, **context_config)
         raise ndb.Return(result)
 
 
@@ -481,14 +499,14 @@ class SearchDelete(SearchMethod):
         kwargs['code_name'] = 'delete'
         super(SearchDelete, self).__init__(**kwargs)
 
-    def _internal_op(self, resource_uid, **kwargs):
+    def _internal_op(self, resource_uid, context_config, **kwargs):
         """
         Delete model from the Search index.
 
         :param resource_uid:
         :param kwargs:
         """
-        result = yield self.search_index.delete_async(resource_uid, **kwargs)
+        result = yield self.search_index.delete_async(resource_uid, **context_config)
         raise ndb.Return(result)
 
 
@@ -500,7 +518,7 @@ class SearchQuery(SearchMethod):
         self.result_model = result_model
         self.search_results_model = search_results_model
 
-    def _internal_op(self, query_string, explicit_query_string_overrides=None, cursor_support=False,
+    def _internal_op(self, query_string, context_config, explicit_query_string_overrides=None, cursor_support=False,
                      existing_cursor=None, limit=20, number_found_accuracy=None, offset=None, sort_options=None,
                      returned_fields=None, ids_only=False, snippeted_fields=None, returned_expressions=None,
                      sort_limit=1000, **kwargs):
@@ -599,7 +617,7 @@ class SearchQuery(SearchMethod):
         # search_result = yield self.search_index.search_async(query=query)
         # If we yield then everything breaks; apparently yielding on search_async is not supported.
         # TODO: find work-around
-        search_result_future = self.search_index.search_async(query=query)
+        search_result_future = self.search_index.search_async(query=query, **context_config)
         search_result = search_result_future.get_result()
 
         result_cursor = None

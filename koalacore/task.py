@@ -52,6 +52,21 @@ def filter_unwanted_params(request_params, unwanted=None):
     return{k: v for k, v in request_params.iteritems() if k in keys_to_keep}
 
 
+def run_task(request, api_instance):
+    method_params = filter_unwanted_params(request_params=request.params, unwanted=['identity_uid'])
+
+    api_method_path = parse_api_path(api=api_instance, path=method_params['api_method_path'])
+
+    # TODO: authenticate as admin and add identity_uid to method_params
+    method_params['identity_uid'] = 'thisisobviouslyatest'
+
+    result_future = api_method_path(**method_params)
+    result = result_future.get_result()
+    logging.debug(u"`{}` called with: \n{}\nResult: {}".format(method_params['api_method_path'], method_params, result))
+
+    return result
+
+
 def task_runner(request, api_instance):
     if not users.get_current_user():
         webapp2.abort(code=401)
@@ -59,17 +74,7 @@ def task_runner(request, api_instance):
     if not users.is_current_user_admin():
         webapp2.abort(code=403)
 
-    method_params = filter_unwanted_params(request_params=request.params, unwanted=['identity_uid'])
-
-    api_method_path = parse_api_path(api=api_instance, path=request.get('api_method_path'))
-
-    # TODO: authenticate as admin and add identity_uid to method_params
-    method_params['identity_uid'] = 'thisisobviouslyatest'
-
-    result_future = api_method_path(**method_params)
-    result = result_future.get_result()
-
-    logging.debug(u"`{}` called with: \n{}\nResult: {}".format(request.get('api_method_path'), method_params, result))
+    result = run_task(request=request, api_instance=api_instance)
 
     return webapp2.Response('Task ran successfully')
 

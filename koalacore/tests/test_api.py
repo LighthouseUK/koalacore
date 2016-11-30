@@ -22,6 +22,7 @@ from blinker import signal
 from koalacore.api import parse_api_config, parse_api_path, GaeAPI
 from koalacore.resource import Resource, StringProperty, ResourceUIDProperty, ResourceUID, DateProperty, DateTimeProperty, TimeProperty
 from koalacore.rpc import NDBDatastore, GAESearch, UniqueValueRequired, NDBInsert
+from koalacore.task import run_task
 from google.appengine.ext import testbed
 from google.appengine.ext import deferred
 import google.appengine.ext.ndb as ndb
@@ -92,6 +93,11 @@ test_def = {
         },
     }
 }
+
+
+class RequestMock(object):
+    def __init__(self, payload):
+        self.params = payload
 
 
 class SignalTester(object):
@@ -308,6 +314,10 @@ class TestGaeApi(unittest.TestCase):
 
         tasks = self.task_queue.get_filtered_tasks()
         while tasks:
+            for task in tasks:
+                unpickled_payload = pickle.loads(task.payload)
+                request = RequestMock(payload=unpickled_payload)
+                run_task(request=request, api_instance=test_api)
             tasks = self.task_queue.get_filtered_tasks()
 
         search_result_future = test_api.companies.search(identity_uid='thisisatestidentitykey', query_string='file_name: {}'.format(test_resource.file_name))
