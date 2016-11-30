@@ -98,7 +98,9 @@ class SignalTester(object):
 
     def __init__(self):
         self.hook_activations = {}
+        self.hook_activations_count = 0
         self.filter_activations = {}
+        self.filter_activations_count = 0
 
     def hook_subscriber(self, sender, **kwargs):
         hook_name = kwargs.get('hook_name', 'anonymous')
@@ -112,6 +114,8 @@ class SignalTester(object):
             self.hook_activations[hook_name] = {
                 sender: [kwargs]
             }
+
+        self.hook_activations_count += 1
 
 
 class AsyncSignalTester(object):

@@ -20,6 +20,7 @@
     limitations under the License.
 """
 import functools
+import pickle
 from blinker import signal
 from .resource import ResourceMock
 import google.appengine.ext.ndb as ndb
@@ -97,7 +98,7 @@ class Method(Component):
             kwargs['hook_name'] = signal_to_trigger.name
             kwargs['action'] = self._full_name
             for receiver in signal_to_trigger.receivers_for(sender=sender):
-                yield receiver(self, **kwargs)
+                yield receiver(sender, **kwargs)
 
     def _internal_op(self, **kwargs):
         """
@@ -191,7 +192,20 @@ class BaseAPI(Component):
         if queue_name is None:
             queue_name = self.default_task_queue
 
-        taskqueue.add(url=self.task_queue_path, payload=payload, queue_name=queue_name, **kwargs)
+        pickled_payload = pickle.dumps(payload, protocol=pickle.HIGHEST_PROTOCOL)
+
+        taskqueue.add(url=self.task_queue_path, payload=pickled_payload, queue_name=queue_name, **kwargs)
+
+    def _parse_defer_payload(self):
+        pass
+
+    def defer_lambda(self, api_method_path, **kwargs):
+        payload = {
+            'api_method_path': api_method_path
+        }
+
+        payload.update(kwargs)
+        self.defer(payload=payload)
 
 
 class RPCClient(BaseAPI):
@@ -248,9 +262,9 @@ class GaeAPI(ResourceApi):
         self.search_client_config = default_search_config
 
         super(GaeAPI, self).__init__(**kwargs)
-        # signal('post_insert').connect(self._test_hook, sender=self)
-        # signal('post_update').connect(lambda **k: deferred.defer(self._update_search_index, _queue=self.search_update_queue, **k), sender=self)
-        # signal('post_delete').connect(lambda **k: deferred.defer(self._delete_search_index, _queue=self.search_update_queue, **k), sender=self)
+        signal(self.insert.post_name).connect(lambda s, **k: self.defer_lambda(api_method_path='companies._update_search_index', **k), sender=self, weak=False)
+        signal(self.update.post_name).connect(lambda s, **k: self.defer_lambda(api_method_path='companies._update_search_index', **k), sender=self, weak=False)
+        signal(self.delete.post_name).connect(lambda s, **k: self.defer_lambda(api_method_path='companies._delete_search_index', **k), sender=self, weak=False)
 
     def _create_methods(self, method_class):
         self.datastore_client = _build_component(config=self.datastore_client_config)
@@ -263,8 +277,8 @@ class GaeAPI(ResourceApi):
         self.query = GaeMethod(code_name='query', parent=self, rpc_client=self.datastore_client)
         self.search = GaeMethod(code_name='search', parent=self, rpc_client=self.search_client)
 
-    def _test_hook(self, sender, result, **kwargs):
-        deferred.defer(self._update_search_index, _queue=self.search_update_queue, result=result)
+    def test_hook(self, *args, **kwargs):
+        pass
 
     def _update_search_index(self, result, **kwargs):
         resource = self.get(resource_uid=result).get_result()

@@ -28,7 +28,7 @@ import unittest
 from koalacore.tests.test_api import TestGaeApi
 # from koalacore.tests.test_api import TestAPIConfigParserDefaults
 # from koalacore.tests.test_api import TestAPIConfigParser
-
+# from koalacore.tests.test_signals import TestSignals
 
 __author__ = 'Matt'
 
