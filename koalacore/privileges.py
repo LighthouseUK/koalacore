@@ -5,7 +5,7 @@
 
     Standalone privilege evaluation system. Using predefined object base classes, add unix style permissions and
     security meta. Also provides a system for defining system privileges on object types for further access control.
-    
+
     :copyright: (c) 2015 Lighthouse
     :license: LGPL
 """
@@ -108,22 +108,22 @@ PrivilegeConstants = collections.namedtuple('PrivilegeConstants', [
     SYSTEM_GROUP_USER=SYSTEM_GROUP_USER,
     SYSTEM_GROUP_ENTITY=SYSTEM_GROUP_ENTITY,
     SYSTEM_USER_GROUPS={
-        "system":        SYSTEM_GROUP_SYSTEM,
-        "root":          SYSTEM_GROUP_ROOT,
-        "admin":         SYSTEM_GROUP_ADMIN,
-        "supervisor":    SYSTEM_GROUP_SUPERVISOR,
-        "user":          SYSTEM_GROUP_USER,
-        "entity":          SYSTEM_GROUP_ENTITY,
+        "system": SYSTEM_GROUP_SYSTEM,
+        "root": SYSTEM_GROUP_ROOT,
+        "admin": SYSTEM_GROUP_ADMIN,
+        "supervisor": SYSTEM_GROUP_SUPERVISOR,
+        "user": SYSTEM_GROUP_USER,
+        "entity": SYSTEM_GROUP_ENTITY,
     },
     STATUS_DELETED=STATUS_DELETED,
     STATUS_MOCKED=STATUS_MOCKED,
     STATUS_INACTIVE=STATUS_INACTIVE,
     STATUS_ACTIVE=STATUS_ACTIVE,
     SUPPORTED_STATUSES={
-        "deleted":       STATUS_DELETED,
-        "mocked":        STATUS_MOCKED,
-        "inactive":      STATUS_INACTIVE,
-        "active":        STATUS_ACTIVE,
+        "deleted": STATUS_DELETED,
+        "mocked": STATUS_MOCKED,
+        "inactive": STATUS_INACTIVE,
+        "active": STATUS_ACTIVE,
     },
     APPLY_TO_RESOURCE=APPLY_TO_RESOURCE,
     APPLY_TO_RESOURCE_TYPE=APPLY_TO_RESOURCE_TYPE,
@@ -225,28 +225,28 @@ class BasePrivilegeEval(object):
         if resource.unix_perms & cls._constants.UNIX_OTHER_READ:
             unix_perms.append(cls._constants.READ)
         elif ((resource.unix_perms & cls._constants.UNIX_OWNER_READ) and
-              (resource.owner == credentials.uid)):
+                  (resource.owner == credentials.uid)):
             unix_perms.append(cls._constants.READ)
         elif ((resource.unix_perms & cls._constants.UNIX_GROUP_READ) and
-              (resource.owner_group & credentials.user_system_groups)):
+                  (resource.owner_group & credentials.user_system_groups)):
             unix_perms.append(cls._constants.READ)
 
         if resource.unix_perms & cls._constants.UNIX_OTHER_WRITE:
             unix_perms.append(cls._constants.WRITE)
         elif ((resource.unix_perms & cls._constants.UNIX_OWNER_WRITE) and
-              (resource.owner == credentials.uid)):
+                  (resource.owner == credentials.uid)):
             unix_perms.append(cls._constants.WRITE)
         elif ((resource.unix_perms & cls._constants.UNIX_GROUP_WRITE) and
-              (resource.owner_group & credentials.user_system_groups)):
+                  (resource.owner_group & credentials.user_system_groups)):
             unix_perms.append(cls._constants.WRITE)
 
         if resource.unix_perms & cls._constants.UNIX_OTHER_DELETE:
             unix_perms.append(cls._constants.DELETE)
         elif ((resource.unix_perms & cls._constants.UNIX_OWNER_DELETE) and
-              (resource.owner == credentials.uid)):
+                  (resource.owner == credentials.uid)):
             unix_perms.append(cls._constants.DELETE)
         elif ((resource.unix_perms & cls._constants.UNIX_GROUP_DELETE) and
-              (resource.owner_group & credentials.user_system_groups)):
+                  (resource.owner_group & credentials.user_system_groups)):
             unix_perms.append(cls._constants.DELETE)
 
         return unix_perms
@@ -575,8 +575,8 @@ class AugmentedPrivilegeEvaluator(BasePrivilegeEval):
         type_check_passed = False
 
         if ((priv.privilege_type == PrivilegeConstants.PRIVILEGE_TYPE_OBJECT and priv.related_uid == resource.uid) or
-                priv.privilege_type == PrivilegeConstants.PRIVILEGE_TYPE_RESOURCE_TYPE or
-                priv.privilege_type == PrivilegeConstants.PRIVILEGE_TYPE_GLOBAL):
+                    priv.privilege_type == PrivilegeConstants.PRIVILEGE_TYPE_RESOURCE_TYPE or
+                    priv.privilege_type == PrivilegeConstants.PRIVILEGE_TYPE_GLOBAL):
             type_check_passed = True
 
         if not type_check_passed and priv.role == 'self':
@@ -624,11 +624,12 @@ def get_credential_group_list_from_bitmask(credentials, capitalize=False):
     """
     groups = []
     for group_name, group_bitmask in PrivilegeConstants.SYSTEM_USER_GROUPS.iteritems():
-        if ((group_bitmask & credentials.system_groups or credentials.system_groups & PrivilegeConstants.SYSTEM_GROUP_ROOT) and
-                group_bitmask != PrivilegeConstants.SYSTEM_GROUP_SYSTEM and
-                group_bitmask != PrivilegeConstants.SYSTEM_GROUP_ROOT and
-                group_bitmask != PrivilegeConstants.SYSTEM_GROUP_USER and
-                group_bitmask != PrivilegeConstants.SYSTEM_GROUP_SUPERVISOR):
+        if ((
+                    group_bitmask & credentials.system_groups or credentials.system_groups & PrivilegeConstants.SYSTEM_GROUP_ROOT) and
+                    group_bitmask != PrivilegeConstants.SYSTEM_GROUP_SYSTEM and
+                    group_bitmask != PrivilegeConstants.SYSTEM_GROUP_ROOT and
+                    group_bitmask != PrivilegeConstants.SYSTEM_GROUP_USER and
+                    group_bitmask != PrivilegeConstants.SYSTEM_GROUP_SUPERVISOR):
             if capitalize:
                 groups.append(group_name.capitalize())
             else:
@@ -746,4 +747,5 @@ def authorise(action, resource_arg_name='resource', credentials_arg_name='creden
             return fnc(*args, **kwargs)
 
         return check_permissions
+
     return privilege_required

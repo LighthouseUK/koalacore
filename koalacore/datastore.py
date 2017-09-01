@@ -2,15 +2,14 @@
 """
     koala.datastore
     ~~~~~~~~~~~~~~~~~~
-    
-    
+
+
     :copyright: (c) 2015 Lighthouse
     :license: LGPL
 """
 import logging
 from .tools import DictDiffer
 from .exceptions import KoalaException
-
 
 __author__ = 'Matt Badger'
 
@@ -37,6 +36,7 @@ class UniqueValueRequired(ResourceException, ValueError):
     obtained then this exception is raised. It should detail the reason for failure by listing the values that locks
     could not be obtained for.
     """
+
     def __init__(self, errors, message=u'Unique resource values already exist in the datastore'):
         super(UniqueValueRequired, self).__init__(message)
         self.errors = errors
@@ -481,6 +481,7 @@ class BaseDatastoreInterface(object):
         # datastore whilst using largely the same code.
         raise NotImplementedError
 
+
 try:
     from blinker import signal
 except ImportError:
@@ -647,7 +648,8 @@ else:
             if cls._hook_pre_patch_enabled:
                 cls.hook_pre_patch.send(cls, resource_uid=resource_uid, delta_update=delta_update, **kwargs)
 
-            return super(EventedDatastoreInterface, cls).patch_async(resource_uid=resource_uid, delta_update=delta_update, **kwargs)
+            return super(EventedDatastoreInterface, cls).patch_async(resource_uid=resource_uid,
+                                                                     delta_update=delta_update, **kwargs)
 
         @classmethod
         def parse_patch_async_result(cls, future):
@@ -753,6 +755,7 @@ else:
             cls._hook_pre_list_enabled = bool(cls.hook_pre_list.receivers)
             cls._hook_post_list_enabled = bool(cls.hook_post_list.receivers)
 
+
     try:
         import google.appengine.ext.ndb as ndb
         from google.appengine.ext.ndb.google_imports import ProtocolBuffer
@@ -773,7 +776,8 @@ else:
 
             TODO: properly implement/handle transactions in async configuration.
             """
-            _unwanted_resource_kwargs = ['uniques_modified', 'immutable', 'track_unique_modifications', '_history', '_history_tracking']
+            _unwanted_resource_kwargs = ['uniques_modified', 'immutable', 'track_unique_modifications', '_history',
+                                         '_history_tracking']
 
             HOOK_TRANSACTION_PRE_INSERT = 'hook_transaction_pre_insert'
             HOOK_TRANSACTION_POST_INSERT = 'hook_transaction_post_insert'
@@ -967,6 +971,7 @@ else:
                 :param kwargs:
                 :raises NotImplementedError:
                 """
+
                 @ndb.transactional_tasklet
                 def delta_update_transaction(datastore_key, delta_update):
                     model = yield cls._internal_get(datastore_key=datastore_key)
@@ -1045,7 +1050,8 @@ else:
                 :returns future:
                 """
                 resource_object = cls.get(resource_uid=resource_uid)
-                uniques, old_values = cls._parse_resource_object_unique_values(resource_object=resource_object, force=True)
+                uniques, old_values = cls._parse_resource_object_unique_values(resource_object=resource_object,
+                                                                               force=True)
                 if uniques:
                     cls._delete_unique_locks(uniques=uniques)
                 datastore_key = cls.parse_datastore_key(resource_uid=resource_uid)
@@ -1177,14 +1183,16 @@ else:
 
                     prop_name = property_instance._code_name
                     if prop_name in datastore_model_kwargs and (
-                            prop_type is ndb.model.DateTimeProperty or prop_type is ndb.model.DateProperty):
+                                    prop_type is ndb.model.DateTimeProperty or prop_type is ndb.model.DateProperty):
                         if property_instance._auto_now:
                             del datastore_model_kwargs[prop_name]
                         if property_instance._auto_now_add and not datastore_model_kwargs[prop_name]:
                             # We only want to remove an auto_now_add property if it is not currently set
                             del datastore_model_kwargs[prop_name]
-                    elif prop_name in datastore_model_kwargs and prop_type is ndb.model.KeyProperty and datastore_model_kwargs[prop_name] is not None:
-                        datastore_model_kwargs[prop_name] = cls._convert_string_to_ndb_key(datastore_key=datastore_model_kwargs[prop_name])
+                    elif prop_name in datastore_model_kwargs and prop_type is ndb.model.KeyProperty and \
+                                    datastore_model_kwargs[prop_name] is not None:
+                        datastore_model_kwargs[prop_name] = cls._convert_string_to_ndb_key(
+                            datastore_key=datastore_model_kwargs[prop_name])
 
                 return cls._datastore_model(**datastore_model_kwargs)
 
@@ -1205,8 +1213,10 @@ else:
                     prop_type = type(property_instance)
                     if prop_type is ndb.model.ComputedProperty:
                         del resource_object_kwargs[property_instance._code_name]
-                    elif prop_type is ndb.model.KeyProperty and resource_object_kwargs[property_instance._code_name] is not None:
-                        resource_object_kwargs[property_instance._code_name] = cls._convert_ndb_key_to_string(datastore_key=resource_object_kwargs[property_instance._code_name])
+                    elif prop_type is ndb.model.KeyProperty and resource_object_kwargs[
+                        property_instance._code_name] is not None:
+                        resource_object_kwargs[property_instance._code_name] = cls._convert_ndb_key_to_string(
+                            datastore_key=resource_object_kwargs[property_instance._code_name])
 
                 return cls._resource_object(**resource_object_kwargs)
 

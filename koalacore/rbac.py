@@ -58,13 +58,6 @@ class PermissionsStorage(object):
         else:
             self._cache = cache
 
-    def __repr__(self):
-        args = 'roles={!r}, acl={!r}'.format(self.roles, self.acl)
-        return '{}({})'.format(self.__class__.__name__, args)
-
-    def __str__(self):
-        return '{}\n  Roles: {}\n  ACL: {}'.format(self.__class__.__name__, self.roles, self.acl)
-
     def add_role(self, role):
         self.roles.add(role)
         self.clear_cache()

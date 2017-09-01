@@ -2,8 +2,8 @@
 """
     .tools
     ~~~~~~~~~~~~~~~~~~
-    
-    
+
+
     :copyright: (c) 2015 Lighthouse
     :license: LGPL
 """
@@ -94,6 +94,7 @@ class DictDiffer(object):
     (3) keys same in both but changed values
     (4) keys same in both and unchanged values
     """
+
     def __init__(self, current_dict, past_dict):
         self.current_dict, self.past_dict = current_dict, past_dict
         self.current_keys, self.past_keys = [
@@ -114,6 +115,7 @@ class DictDiffer(object):
     def unchanged(self):
         return set(o for o in self.intersect
                    if self.past_dict[o] == self.current_dict[o])
+
 
 STATIC_COUNTRY_LABLES_TUPLE = (
     (u'AF', u'Afghanistan'), (u'AX', u'\xc5land Islands'), (u'AL', u'Albania'), (u'DZ', u'Algeria'),
@@ -230,7 +232,6 @@ STATIC_COUNTRY_CODES_SET = {
     u'AR', u'AU', u'AT', u'AW', u'AI', u'VC', u'AM', u'AL', u'AO', u'AE', u'AD', u'AG', u'AF', u'IQ', u'IS', u'IR',
     u'IT', u'QA', u'RW', u'IE', u'ID', u'IM', u'IL', u'IO', u'IN'
 }
-
 
 STATIC_LANGUAGE_CODES_TUPLE = (
     (u'aa', u'Afar'),

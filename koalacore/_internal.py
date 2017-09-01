@@ -2,8 +2,8 @@
 """
     koala._internal
     ~~~~~~~~~~~~~~~~~~
-    
-    
+
+
     :copyright: (c) 2015 Lighthouse
     :license: LGPL
 """

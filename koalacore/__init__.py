@@ -24,32 +24,30 @@ if STATICA_HACK:  # pragma: no cover
     # This is never executed, but tricks static analyzers (PyDev, PyCharm,
     # pylint, etc.) into knowing the types of these symbols, and what
     # they contain.
-    from koalacore.api import BaseAPI, BaseSubAPI, BaseResource, Resource, BaseResourceProperty, ResourceProperty, ComputedResourceProperty, SearchResult, SearchResultProperty  # noqa
+    from koalacore.api import BaseAPI, BaseSubAPI, BaseResource, Resource, BaseResourceProperty, ResourceProperty, ComputedResourceProperty  # noqa
     from koalacore.tools import DictDiffer, generate_autocomplete_tokens, eval_boolean_string, convert_to_unicode, csv_item_convert  # noqa
-    from koalacore.search import GAESearchInterface, Result, KoalaSearchInterface  # noga
-    from koalacore.rbac import PermissionDenied, PermissionsStorage, RBAC  # noga
-    from koalacore.privileges import Privilege, PrivilegeConstants, SecurityObject, AugmentedPrivilegeEvaluator, AugmentedSecurityObject, authorise, UnauthorisedCredentials, mock_credentials  # noqa
+    from koalacore.search import GAESearchInterface, Result
+    from koalacore.rbac import PermissionDenied, PermissionsStorage, RBAC
+    # from koalacore.privileges import Privilege, PrivilegeConstants, SecurityObject, AugmentedPrivilegeEvaluator, AugmentedSecurityObject, authorise, UnauthorisedCredentials, mock_credentials  # noqa
     from koalacore.datastore import NDBEventedInterface, NDBUniques, ModelUtils, NDBResource, ResourceNotFound, ResourceException, UniqueValueRequired  # noqa
     from koalacore.security import generate_password_hash, generate_random_string, check_password_hash  # noqa
     from koalacore.exceptions import KoalaException, InvalidUser, UnauthorisedUser  # noqa
     from koalacore.validators import URIValidator, ConditionalURIValidator  # noqa
-    from koalacore.config import CustomConfigParser, NoOptionError, NoSectionError, load_config  # noqa
 
 
 # import mapping to objects in other modules
 all_by_module = {
-    '{}.api'.format(PACKAGE_NAME): ['BaseAPI', 'BaseSubAPI', 'BaseResource', 'Resource', 'BaseResourceProperty', 'ResourceProperty', 'ComputedResourceProperty', 'SearchResult', 'SearchResultProperty'],
+    '{}.api'.format(PACKAGE_NAME): ['BaseAPI', 'BaseSubAPI', 'BaseResource', 'Resource', 'BaseResourceProperty', 'ResourceProperty', 'ComputedResourceProperty'],
     '{}.tools'.format(PACKAGE_NAME): ['DictDiffer', 'generate_autocomplete_tokens', 'eval_boolean_string', 'convert_to_unicode', 'csv_item_convert'],
-    '{}.search'.format(PACKAGE_NAME): ['GAESearchInterface', 'Result', 'KoalaSearchInterface'],
+    '{}.search'.format(PACKAGE_NAME): ['GAESearchInterface', 'Result'],
     '{}.rbac'.format(PACKAGE_NAME): ['PermissionDenied', 'PermissionsStorage', 'RBAC'],
-    '{}.privileges'.format(PACKAGE_NAME): ['Privilege', 'PrivilegeConstants', 'SecurityObject',
-                                           'AugmentedPrivilegeEvaluator', 'AugmentedSecurityObject', 'authorise',
-                                           'UnauthorisedCredentials', 'mock_credentials'],
+    # '{}.privileges'.format(PACKAGE_NAME): ['Privilege', 'PrivilegeConstants', 'SecurityObject',
+    #                                        'AugmentedPrivilegeEvaluator', 'AugmentedSecurityObject', 'authorise',
+    #                                        'UnauthorisedCredentials', 'mock_credentials'],
     '{}.datastore'.format(PACKAGE_NAME): ['NDBEventedInterface', 'NDBUniques', 'ModelUtils', 'NDBResource', 'ResourceNotFound', 'ResourceException', 'UniqueValueRequired'],
     '{}.security'.format(PACKAGE_NAME): ['generate_password_hash', 'generate_random_string', 'check_password_hash'],
     '{}.exceptions'.format(PACKAGE_NAME): ['KoalaException', 'ResourceException', 'UniqueValueRequired', 'InvalidUser', 'UnauthorisedUser'],
     '{}.validators'.format(PACKAGE_NAME): ['URIValidator', 'ConditionalURIValidator'],
-    '{}.config'.format(PACKAGE_NAME): ['CustomConfigParser', 'NoSectionError', 'NoOptionError', 'load_config'],
 }
 
 # modules that should be imported when accessed as attributes of koala

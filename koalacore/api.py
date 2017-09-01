@@ -4,7 +4,7 @@
     ~~~~~~~~~~~~~~~~~~
 
     Contains base implementations for building an internal project API
-    
+
     :copyright: (c) 2015 Lighthouse
     :license: LGPL
 """
@@ -13,6 +13,7 @@ from blinker import signal
 from google.appengine.ext import deferred
 
 __author__ = 'Matt Badger'
+
 
 # TODO: remove the deferred library dependency; extend the BaseAPI in an App Engine specific module to include deferred.
 
@@ -33,15 +34,16 @@ class BaseAPI(object):
         return cls._api_model(**kwargs)
 
     @classmethod
-    def insert(cls, resource_object, **kwargs):
+    def insert(cls, resource_object, auth_uid=None, **kwargs):
         if signal('pre_insert').has_receivers_for(cls):
-            signal('pre_insert').send(cls, resource_object=resource_object, **kwargs)
+            signal('pre_insert').send(cls, resource_object=resource_object, auth_uid=auth_uid, **kwargs)
 
         resource_uid = cls._datastore_interface.insert(resource_object=resource_object, **kwargs)
         deferred.defer(cls._update_search_index, resource_uid=resource_uid, _queue='search-index-update')
 
         if signal('post_insert').has_receivers_for(cls):
-            signal('post_insert').send(cls, result=resource_uid, resource_uid=resource_uid, resource_object=resource_object, **kwargs)
+            signal('post_insert').send(cls, result=resource_uid, resource_uid=resource_uid,
+                                       resource_object=resource_object, auth_uid=auth_uid, **kwargs)
         return resource_uid
 
     @classmethod
@@ -57,41 +59,44 @@ class BaseAPI(object):
         return resource
 
     @classmethod
-    def update(cls, resource_object, **kwargs):
+    def update(cls, resource_object, auth_uid=None, **kwargs):
         if signal('pre_update').has_receivers_for(cls):
-            signal('pre_update').send(cls, resource_object=resource_object, **kwargs)
+            signal('pre_update').send(cls, resource_object=resource_object, auth_uid=auth_uid, **kwargs)
 
         resource_uid = cls._datastore_interface.update(resource_object=resource_object, **kwargs)
         deferred.defer(cls._update_search_index, resource_uid=resource_uid, _queue='search-index-update')
 
         if signal('post_update').has_receivers_for(cls):
-            signal('post_update').send(cls, result=resource_uid, resource_uid=resource_uid, resource_object=resource_object, **kwargs)
+            signal('post_update').send(cls, result=resource_uid, resource_uid=resource_uid,
+                                       resource_object=resource_object, auth_uid=auth_uid, **kwargs)
 
         return resource_uid
 
     @classmethod
-    def patch(cls, resource_uid, delta_update, **kwargs):
+    def patch(cls, resource_uid, delta_update, auth_uid=None, **kwargs):
         if signal('pre_patch').has_receivers_for(cls):
-            signal('pre_patch').send(cls, resource_uid=resource_uid, delta_update=delta_update, **kwargs)
+            signal('pre_patch').send(cls, resource_uid=resource_uid, delta_update=delta_update, auth_uid=auth_uid,
+                                     **kwargs)
 
         resource_uid = cls._datastore_interface.patch(resource_uid=resource_uid, delta_update=delta_update, **kwargs)
         deferred.defer(cls._update_search_index, resource_uid=resource_uid, _queue='search-index-update')
 
         if signal('post_patch').has_receivers_for(cls):
-            signal('post_patch').send(cls, result=resource_uid, resource_uid=resource_uid, delta_update=delta_update, **kwargs)
+            signal('post_patch').send(cls, result=resource_uid, resource_uid=resource_uid, delta_update=delta_update,
+                                      auth_uid=auth_uid, **kwargs)
 
         return resource_uid
 
     @classmethod
-    def delete(cls, resource_uid, **kwargs):
+    def delete(cls, resource_uid, auth_uid=None, **kwargs):
         if signal('pre_delete').has_receivers_for(cls):
-            signal('pre_delete').send(cls, resource_uid=resource_uid, **kwargs)
+            signal('pre_delete').send(cls, resource_uid=resource_uid, auth_uid=auth_uid, **kwargs)
 
         cls._datastore_interface.delete(resource_uid=resource_uid, **kwargs)
         deferred.defer(cls._delete_search_index, resource_uid=resource_uid, _queue='search-index-update')
 
         if signal('post_delete').has_receivers_for(cls):
-            signal('post_delete').send(cls, result=None, resource_uid=resource_uid, **kwargs)
+            signal('post_delete').send(cls, result=None, resource_uid=resource_uid, auth_uid=auth_uid, **kwargs)
 
     @classmethod
     def search(cls, query_string, **kwargs):
@@ -134,11 +139,13 @@ class BaseSubAPI(object):
         if signal('pre_patch').has_receivers_for(cls):
             signal('pre_patch').send(cls, resource_uid=resource_uid, delta_update=delta_update, **kwargs)
 
-        resource_uid = cls._parent_api._datastore_interface.patch(resource_uid=resource_uid, delta_update=delta_update, **kwargs)
+        resource_uid = cls._parent_api._datastore_interface.patch(resource_uid=resource_uid, delta_update=delta_update,
+                                                                  **kwargs)
         deferred.defer(cls._parent_api._update_search_index, resource_uid=resource_uid, _queue='search-index-update')
 
         if signal('post_patch').has_receivers_for(cls):
-            signal('post_patch').send(cls, result=resource_uid, resource_uid=resource_uid, delta_update=delta_update, **kwargs)
+            signal('post_patch').send(cls, result=resource_uid, resource_uid=resource_uid, delta_update=delta_update,
+                                      **kwargs)
 
         return resource_uid
 
@@ -154,8 +161,8 @@ class BaseResourceProperty(object):
     _attributes = ['_name', '_default', 'title']
     _positional = 1  # Only name is a positional argument.
 
-    def __init__(self, name=None, default=None, title=u''):
-        self._name = name   # name should conform to python class attribute naming conventions
+    def __init__(self, name=None, default=None, title=''):
+        self._name = name  # name should conform to python class attribute naming conventions
         self._default = default
         self.title = title
 
@@ -212,7 +219,8 @@ class BaseResourceProperty(object):
 class ResourceProperty(BaseResourceProperty):
     _attributes = BaseResourceProperty._attributes + ['_immutable', '_unique', '_strip', '_lower']
 
-    def __init__(self, immutable=False, unique=False, track_revisions=True, strip_whitespace=True, force_lowercase=False, **kwargs):
+    def __init__(self, immutable=False, unique=False, track_revisions=True, strip_whitespace=True,
+                 force_lowercase=False, **kwargs):
         super(ResourceProperty, self).__init__(**kwargs)
         self._immutable = immutable
         self._unique = unique
@@ -356,6 +364,7 @@ class BaseResource(object):
         """Return a dict containing the entity's property values.
         """
         return self._values.copy()
+
     as_dict = _as_dict
 
     @classmethod
@@ -399,96 +408,3 @@ class Resource(BaseResource):
     uid = ResourceProperty(title=u'UID', immutable=True, track_revisions=False)
     created = ResourceProperty(title=u'Created', immutable=True, track_revisions=False)
     updated = ResourceProperty(title=u'Updated', immutable=True, track_revisions=False)
-
-
-class SearchResultProperty(BaseResourceProperty):
-    """
-    We don't need any functionality that the BaseResourceProperty doesn't already provide. We extend here to avoid
-     ambiguity between ResourceProperties and SearchResultProperties.
-    """
-    pass
-
-
-class BaseSearchResult(object):
-    """
-    Base search result object. This is a stripped down version of a resource object. It doesn't include any of the fancy
-    features, such as history tracking, but it does still use the concept of properties. This allows you to set titles
-    for properties, which could make UI development easier.
-
-    You must call super(SearchResult, self).__init__() first in your init method.
-
-    """
-
-    __metaclass__ = MetaModel
-
-    _properties = None
-
-    def __init__(self, **kwargs):
-        self._init_complete = False
-        self._values = {}
-        self._set_attributes(kwargs)
-        self._init_complete = True
-
-    def _set_attributes(self, kwds):
-        """Internal helper to set attributes from keyword arguments.
-
-        Expando overrides this.
-        """
-        cls = self.__class__
-        for name, value in kwds.iteritems():
-            prop = getattr(cls, name)  # Raises AttributeError for unknown properties.
-            if not isinstance(prop, BaseResourceProperty):
-                raise TypeError('Cannot set non-property %s' % name)
-            prop.__set__(self, value)
-
-    def __repr__(self):
-        """Return an unambiguous string representation of an entity."""
-        args = []
-        for prop in self._properties.itervalues():
-            if prop._has_value(self):
-                val = prop.__get__(self)
-                if val is None:
-                    rep = 'None'
-                else:
-                    rep = val
-                args.append('%s=%s' % (prop._name, rep))
-        args.sort()
-        s = '%s(%s)' % (self.__class__.__name__, ', '.join(args))
-        return s
-
-    def _as_dict(self):
-        """Return a dict containing the entity's property values.
-        """
-        return self._values.copy()
-    as_dict = _as_dict
-
-    @classmethod
-    def _fix_up_properties(cls):
-        """Fix up the properties by calling their _fix_up() method.
-
-        Note: This is called by MetaModel, but may also be called manually
-        after dynamically updating a model class.
-        """
-        cls._properties = {}  # Map of {name: Property}
-        cls._uniques = []  # Map of {name: Property}
-
-        if cls.__module__ == __name__:  # Skip the classes in *this* file.
-            return
-        for name in set(dir(cls)):
-            attr = getattr(cls, name, None)
-            if isinstance(attr, BaseResourceProperty):
-                if name.startswith('_'):
-                    raise TypeError('ModelAttribute %s cannot begin with an underscore '
-                                    'character. _ prefixed attributes are reserved for '
-                                    'temporary Model instance values.' % name)
-                attr._fix_up(cls, name)
-                cls._properties[attr._name] = attr
-
-
-class SearchResult(BaseResource):
-    """
-    Default implementation of a search result. The UID property is created by default but it is up to you to set it.
-
-    These objects should be treated as read-only.
-    """
-    uid = SearchResultProperty(title=u'UID')
